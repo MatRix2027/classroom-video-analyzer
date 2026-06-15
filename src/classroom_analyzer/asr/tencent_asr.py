@@ -57,6 +57,7 @@ class TencentASRClient:
 
         # 初始化COS客户端（绕过系统代理，否则翻墙/VPN软件会拦截请求导致 ProxyError）
         cos_region = cos_config.get("region", "ap-guangzhou")
+        self._cos_region = cos_region
         cos_config_obj = CosConfig(
             Region=cos_region,
             SecretId=secret_id,
@@ -176,6 +177,8 @@ class TencentASRClient:
             Key=object_key,
             Expired=7200,  # 2小时
         )
+        if not isinstance(url, str):
+            url = f"https://{self._cos_bucket}.cos.{self._cos_region}.myqcloud.com/{object_key}"
 
         logger.debug(f"COS上传成功：{object_key}")
         return url
@@ -313,7 +316,7 @@ class TencentASRClient:
                 logger.warning(f"ASR任务未知状态：{status}，继续等待")
                 time.sleep(poll_interval)
 
-    def _parse_result(self, raw_result: dict, audio_duration: float = 0.0) -> Transcript:
+    def _parse_result(self, raw_result: dict | list, audio_duration: float = 0.0) -> Transcript:
         """解析ASR识别结果。
 
         优先使用 ResultDetail（含 SpeakerId/StartMs/EndMs/FinalSentence），
@@ -330,8 +333,10 @@ class TencentASRClient:
         speakers: set[str] = set()
         max_end = 0.0
 
+        normalized_result: dict = {"result": raw_result} if isinstance(raw_result, list) else raw_result
+
         # ===== 优先路径：ResultDetail（含说话人信息） =====
-        result_detail = raw_result.get("result_detail")
+        result_detail = normalized_result.get("result_detail")
         if result_detail and isinstance(result_detail, list) and len(result_detail) > 0:
             logger.info(f"使用 ResultDetail 解析，共 {len(result_detail)} 条")
             for item in result_detail:
@@ -366,7 +371,7 @@ class TencentASRClient:
                 logger.warning("ResultDetail 解析后无有效片段，尝试 Result 降级")
 
         # ===== 降级路径1：Result（JSON list 或纯文本） =====
-        result_data = raw_result.get("result", raw_result)
+        result_data = normalized_result.get("result", normalized_result)
         result_list = result_data
 
         # 如果有外层包装
@@ -408,11 +413,11 @@ class TencentASRClient:
         text = ""
         if isinstance(result_data, dict):
             text = result_data.get("text", "")
-        if not text and isinstance(raw_result.get("result"), dict):
-            text = raw_result["result"].get("text", "")
+        if not text and isinstance(normalized_result.get("result"), dict):
+            text = normalized_result["result"].get("text", "")
         if not text:
             # 尝试从 Result 纯文本中提取
-            result_str = raw_result.get("result", "")
+            result_str = normalized_result.get("result", "")
             if isinstance(result_str, str) and result_str:
                 text = result_str
 
@@ -464,11 +469,13 @@ class TencentASRClient:
             role_name = getattr(item, "SpeakerRoleName", None)
         elif isinstance(item, dict):
             # dict 格式
-            text = item.get("FinalSentence", "")
-            start_ms = item.get("StartMs", 0)
-            end_ms = item.get("EndMs", 0)
+            text = item.get("FinalSentence", item.get("Text", ""))
+            start_ms = item.get("StartMs", item.get("StartTime", 0))
+            end_ms = item.get("EndMs", item.get("EndTime", 0))
             speaker_id = item.get("SpeakerId")
             role_name = item.get("SpeakerRoleName")
+            if role_name is None and "Speaker" in item:
+                role_name = item.get("Speaker")
         else:
             text, start_ms, end_ms, speaker_id, role_name = "", 0, 0, None, None
 
@@ -508,7 +515,9 @@ class TencentASRClient:
         if current.strip():
             sentence_list.append(current.strip())
 
-        # 如果没有按标点分开，按逗号分
+        # 如果没有按标点分开，先按换行分，再按逗号分
+        if len(sentence_list) <= 1:
+            sentence_list = [s.strip() for s in text.splitlines() if s.strip()]
         if len(sentence_list) <= 1:
             sentence_list = [s.strip() for s in text.split("，") if s.strip()]
         if len(sentence_list) <= 1:

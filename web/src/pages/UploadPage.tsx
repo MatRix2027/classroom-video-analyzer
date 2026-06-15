@@ -1,146 +1,138 @@
-import React, { useState, useCallback, useContext, useEffect } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Button,
   Card,
   CardContent,
   Chip,
   FormControl,
-  InputLabel,
+  LinearProgress,
   MenuItem,
   Select,
   Typography,
-  LinearProgress,
-  Alert,
 } from '@mui/material';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
+import InsightsIcon from '@mui/icons-material/Insights';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import { uploadVideoChunked } from '../api/client';
-import api from '../api/client';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import WorkspacePremiumIcon from '@mui/icons-material/WorkspacePremium';
+
 import { ToastContext } from '../App';
+import { getModelConfig, uploadVideoChunked, type ModelConfig } from '../api/client';
 
-// 允许的视频格式
-const ALLOWED_TYPES = ['video/mp4', 'video/quicktime', 'video/x-matroska', 'video/webm'];
-const ALLOWED_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm'];
-const MAX_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
+const ALLOWED_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'flv', 'avi'];
+const MAX_SIZE = 2 * 1024 * 1024 * 1024;
 
-// 班型选项
 const LEVEL_OPTIONS = [
-  { value: 'L1_L3', label: '学前班型（L1-L3）' },
-  { value: 'L4_L6', label: '小低班型（L4-L6）' },
-  { value: 'L7_L9', label: '小高班型（L7-L9）' },
-  { value: 'QC-v4', label: '新版课中质检 v4' },
+  { value: 'QC-v4', label: '统一质检标准 QC-v4' },
+  { value: 'L1_L3', label: 'L1-L3 学前班型' },
+  { value: 'L4_L6', label: 'L4-L6 小低班型' },
+  { value: 'L7_L9', label: 'L7-L9 小高班型' },
+  { value: 'QA-v3', label: '通用巡检 QA-v3' },
 ];
+
+const SCENARIOS = [
+  {
+    id: 'quality',
+    title: '课堂质检',
+    icon: <FactCheckIcon />,
+    tone: '#14532d',
+    summary: '面向达标判断、红线排查、维度评分。',
+  },
+  {
+    id: 'growth',
+    title: '成长反馈',
+    icon: <InsightsIcon />,
+    tone: '#1d4ed8',
+    summary: '面向教师复盘、优势识别、训练建议。',
+  },
+  {
+    id: 'highlight',
+    title: '优秀课例',
+    icon: <WorkspacePremiumIcon />,
+    tone: '#b45309',
+    summary: '面向亮点提取、案例沉淀、培训素材。',
+  },
+];
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
+}
 
 const UploadPage: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useContext(ToastContext);
 
   const [file, setFile] = useState<File | null>(null);
-  const [level, setLevel] = useState<string>('QC-v4');
+  const [level, setLevel] = useState('QC-v4');
+  const [scenario, setScenario] = useState('quality');
+  const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStatusMsg, setUploadStatusMsg] = useState('');
-  const [dragOver, setDragOver] = useState(false);
-  const [error, setError] = useState<string>('');
-
-  // 当前使用的模型配置
-  const [modelConfig, setModelConfig] = useState<{
-    text_model: string;
-    vision_provider: string;
-    vision_model: string;
-    vision_enabled: boolean;
-  } | null>(null);
+  const [uploadStatus, setUploadStatus] = useState('');
+  const [error, setError] = useState('');
+  const [modelConfig, setModelConfig] = useState<ModelConfig | null>(null);
 
   useEffect(() => {
-    api.get('/config/models').then(r => setModelConfig(r.data)).catch(() => {});
+    getModelConfig().then(setModelConfig).catch(() => setModelConfig(null));
   }, []);
 
-  // 校验文件
-  const validateFile = useCallback((f: File): string | null => {
-    const ext = f.name.split('.').pop()?.toLowerCase() || '';
+  const validateFile = useCallback((candidate: File): string | null => {
+    const ext = candidate.name.split('.').pop()?.toLowerCase() || '';
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      return `不支持的视频格式：.${ext}，支持：${ALLOWED_EXTENSIONS.join(', ')}`;
+      return `暂不支持 .${ext} 文件，请上传 ${ALLOWED_EXTENSIONS.join(', ')} 格式。`;
     }
-    if (f.size > MAX_SIZE) {
-      return '文件过大，最大支持 2GB';
+    if (candidate.size > MAX_SIZE) {
+      return '文件超过 2GB，请先压缩或裁剪后再上传。';
     }
     return null;
   }, []);
 
-  // 拖拽事件处理
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
-  }, []);
+  const acceptFile = useCallback((candidate: File) => {
+    const msg = validateFile(candidate);
+    if (msg) {
+      setError(msg);
+      showToast(msg, 'error');
+      return;
+    }
+    setFile(candidate);
+    setError('');
+  }, [showToast, validateFile]);
 
-  const handleDragLeave = useCallback(() => {
+  const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = event.target.files?.[0];
+    if (selected) acceptFile(selected);
+  }, [acceptFile]);
+
+  const handleDrop = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
     setDragOver(false);
-  }, []);
+    const dropped = event.dataTransfer.files[0];
+    if (dropped) acceptFile(dropped);
+  }, [acceptFile]);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragOver(false);
-      const droppedFile = e.dataTransfer.files[0];
-      if (droppedFile) {
-        const err = validateFile(droppedFile);
-        if (err) {
-          setError(err);
-          showToast(err, 'error');
-        } else {
-          setFile(droppedFile);
-          setError('');
-        }
-      }
-    },
-    [validateFile, showToast],
-  );
-
-  // 点击选择文件
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const selected = e.target.files?.[0];
-      if (selected) {
-        const err = validateFile(selected);
-        if (err) {
-          setError(err);
-          showToast(err, 'error');
-        } else {
-          setFile(selected);
-          setError('');
-        }
-      }
-    },
-    [validateFile, showToast],
-  );
-
-  // 格式化文件大小
-  const formatSize = (bytes: number): string => {
-    if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / 1024).toFixed(0)} KB`;
-  };
-
-  // 开始分析
-  const handleStartAnalysis = useCallback(async () => {
+  const startAnalysis = useCallback(async () => {
     if (!file) return;
-
     setUploading(true);
     setUploadProgress(0);
-    setUploadStatusMsg('');
+    setUploadStatus('');
     setError('');
 
     try {
       const result = await uploadVideoChunked(file, level, (pct, msg) => {
         setUploadProgress(pct);
-        if (msg) setUploadStatusMsg(msg);
+        if (msg) setUploadStatus(msg);
       });
-      showToast('上传成功，开始分析...', 'success');
+      showToast('任务已创建，正在进入分析流程。', 'success');
       navigate(`/tasks/${result.id}/analyzing`);
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || '上传失败，请重试';
+      const msg = err?.response?.data?.detail || err?.message || '上传失败，请检查网络后重试。';
       setError(msg);
       showToast(msg, 'error');
     } finally {
@@ -149,159 +141,176 @@ const UploadPage: React.FC = () => {
   }, [file, level, navigate, showToast]);
 
   return (
-    <Box
-      sx={{
-        maxWidth: 720,
-        mx: 'auto',
-        py: 4,
-        px: 2,
-      }}
-    >
-      <Typography variant="h4" sx={{ mb: 1, textAlign: 'center' }}>
-        课堂视频分析
-      </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 4, textAlign: 'center' }}>
-        上传课堂视频，AI 自动分析教学质量，生成评分报告
-      </Typography>
-
-      {/* 拖拽上传区域 */}
-      <Card
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        sx={{
-          border: '2px dashed',
-          borderColor: dragOver ? 'primary.main' : 'divider',
-          bgcolor: dragOver ? 'action.hover' : 'background.paper',
-          cursor: 'pointer',
-          transition: 'all 0.2s',
-          mb: 3,
-        }}
-        onClick={() => document.getElementById('file-input')?.click()}
-      >
-        <CardContent
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            py: 6,
-          }}
-        >
-          <CloudUploadIcon sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
-          <Typography variant="h6" color="text.secondary">
-            拖拽视频文件到此处，或点击选择
+    <Box sx={{ maxWidth: 1180, mx: 'auto', px: 3, py: 4 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.1fr 0.9fr' }, gap: 3, alignItems: 'start' }}>
+        <Box>
+          <Typography variant="h4" sx={{ mb: 1 }}>
+            新建课堂质量分析
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            支持 MP4 / MOV / MKV / WebM，最大 2GB
+          <Typography color="text.secondary" sx={{ mb: 3 }}>
+            上传课堂视频后自动完成转写、教学事件识别、关键帧提取、视觉证据归档和授课质量初评。
           </Typography>
-        </CardContent>
-      </Card>
 
-      <input
-        id="file-input"
-        type="file"
-        accept=".mp4,.mov,.mkv,.webm"
-        style={{ display: 'none' }}
-        onChange={handleFileSelect}
-      />
-
-      {/* 文件信息 */}
-      {file && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-              已选择视频
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+          <Card
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => document.getElementById('video-file-input')?.click()}
+            sx={{
+              cursor: 'pointer',
+              border: '1.5px dashed',
+              borderColor: dragOver ? 'primary.main' : '#cbd5e1',
+              bgcolor: dragOver ? '#ecfdf5' : '#ffffff',
+              mb: 2,
+            }}
+          >
+            <CardContent sx={{ minHeight: 250, display: 'grid', placeItems: 'center', textAlign: 'center', px: 4 }}>
               <Box>
-                <Typography variant="caption" color="text.secondary">
-                  文件名
+                <CloudUploadIcon sx={{ fontSize: 58, color: 'primary.main', mb: 1.5 }} />
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  {file ? file.name : '选择课堂视频'}
                 </Typography>
-                <Typography variant="body2">{file.name}</Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  文件大小
+                <Typography color="text.secondary">
+                  {file ? `${formatSize(file.size)} · ${file.type || 'video'}` : 'MP4 / MOV / MKV / WebM / FLV / AVI，最大 2GB'}
                 </Typography>
-                <Typography variant="body2">{formatSize(file.size)}</Typography>
               </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  文件类型
-                </Typography>
-                <Typography variant="body2">{file.type || '未知'}</Typography>
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
 
-      {/* 错误提示 */}
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-
-      {/* 班型选择 + 开始分析 */}
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-        <FormControl sx={{ minWidth: 240 }}>
-          <InputLabel>班型等级</InputLabel>
-          <Select value={level} label="班型等级" onChange={(e) => setLevel(e.target.value)}>
-            {LEVEL_OPTIONS.map((opt) => (
-              <MenuItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        <Button
-          variant="contained"
-          size="large"
-          startIcon={<PlayArrowIcon />}
-          disabled={!file || uploading}
-          onClick={handleStartAnalysis}
-          sx={{ px: 4, py: 1.5 }}
-        >
-          {uploading ? '上传中...' : '开始分析'}
-        </Button>
-      </Box>
-
-      {/* 上传进度条 */}
-      {uploading && (
-        <Box sx={{ mt: 2 }}>
-          <LinearProgress variant="determinate" value={uploadProgress} />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            {uploadStatusMsg || `上传进度：${uploadProgress}%`}
-          </Typography>
-        </Box>
-      )}
-
-      {/* 当前模型配置 */}
-      {modelConfig && (
-        <Box sx={{ mt: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
-            当前模型：
-          </Typography>
-          <Chip
-            label={`文本：${modelConfig.text_model}`}
-            size="small"
-            variant="outlined"
-            color="default"
+          <input
+            id="video-file-input"
+            type="file"
+            accept=".mp4,.mov,.mkv,.webm,.flv,.avi"
+            style={{ display: 'none' }}
+            onChange={handleFileSelect}
           />
-          {modelConfig.vision_enabled ? (
-            <Chip
-              label={`视觉：${modelConfig.vision_model}`}
-              size="small"
-              color="primary"
-              variant="outlined"
-            />
-          ) : (
-            <Chip label="视觉：未启用" size="small" color="default" variant="outlined" />
+
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+          <Card>
+            <CardContent sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr auto' }, gap: 2, alignItems: 'center' }}>
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.75 }}>
+                  评价标准
+                </Typography>
+                <FormControl fullWidth size="small">
+                  <Select value={level} onChange={(e) => setLevel(e.target.value)}>
+                    {LEVEL_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+              <Button
+                variant="contained"
+                size="large"
+                startIcon={<PlayArrowIcon />}
+                disabled={!file || uploading}
+                onClick={startAnalysis}
+                sx={{ minWidth: 150, height: 42 }}
+              >
+                开始分析
+              </Button>
+            </CardContent>
+          </Card>
+
+          {uploading && (
+            <Box sx={{ mt: 2 }}>
+              <LinearProgress variant="determinate" value={uploadProgress} sx={{ height: 8, borderRadius: 4 }} />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                {uploadStatus || `上传进度 ${uploadProgress}%`}
+              </Typography>
+            </Box>
           )}
         </Box>
-      )}
+
+        <Box sx={{ display: 'grid', gap: 2 }}>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <VisibilityIcon color={modelConfig?.vision_enabled ? 'primary' : 'warning'} />
+                <Typography variant="h6">运行能力</Typography>
+              </Box>
+              <Box sx={{ display: 'grid', gap: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">Web 访问</Typography>
+                  <Chip size="small" color="success" label="开箱可用" />
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">关键帧提取</Typography>
+                  <Chip size="small" color="success" label="默认启用" />
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">视觉评分</Typography>
+                  <Chip
+                    size="small"
+                    color={modelConfig?.vision_enabled ? 'success' : 'warning'}
+                    label={modelConfig?.vision_enabled ? modelConfig.vision_model : '未配置时需复核'}
+                  />
+                </Box>
+              </Box>
+              {!modelConfig?.vision_enabled && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  当前环境可访问和上传，也会提取关键帧；视觉维度若未配置模型，会以“待复核”方式呈现，避免误判为终评。
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <AutoAwesomeIcon color="primary" />
+                <Typography variant="h6">分析目标</Typography>
+              </Box>
+              <Box sx={{ display: 'grid', gap: 1.5 }}>
+                {SCENARIOS.map((item) => {
+                  const active = scenario === item.id;
+                  return (
+                    <Box
+                      key={item.id}
+                      onClick={() => setScenario(item.id)}
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: '36px 1fr auto',
+                        gap: 1.5,
+                        alignItems: 'center',
+                        p: 1.5,
+                        borderRadius: 1.5,
+                        border: '1px solid',
+                        borderColor: active ? item.tone : '#e5e7eb',
+                        bgcolor: active ? '#f8faf7' : '#ffffff',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Box sx={{ color: item.tone, display: 'flex' }}>{item.icon}</Box>
+                      <Box>
+                        <Typography variant="subtitle2">{item.title}</Typography>
+                        <Typography variant="body2" color="text.secondary">{item.summary}</Typography>
+                      </Box>
+                      {active && <Chip size="small" color="primary" label="当前" />}
+                    </Box>
+                  );
+                })}
+              </Box>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 1.5 }}>输出结构</Typography>
+              {['总分与等级', '红线风险', '维度评分', '证据片段', '改进建议'].map((item) => (
+                <Chip key={item} label={item} sx={{ mr: 1, mb: 1 }} variant="outlined" />
+              ))}
+            </CardContent>
+          </Card>
+        </Box>
+      </Box>
     </Box>
   );
 };

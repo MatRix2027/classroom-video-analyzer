@@ -1,202 +1,244 @@
-import React, { useEffect, useState, useRef, useContext } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Button,
   Card,
+  CardActionArea,
   CardContent,
   CircularProgress,
+  Chip,
+  Divider,
   Typography,
 } from '@mui/material';
-import Grid2 from '@mui/material/Grid2';
 import DescriptionIcon from '@mui/icons-material/Description';
-import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import {
-  getTaskDetail,
-  getVideoUrl,
-  getReportUrl,
-  type TaskDetail,
-  type ScoreCard,
-} from '../api/client';
-import ScoreRadarChart from '../components/RadarChart';
-import ScoreCardDisplay from '../components/ScoreCard';
-import DimensionCard from '../components/DimensionCard';
-import VideoPlayer, { type VideoPlayerHandle } from '../components/VideoPlayer';
+import DownloadIcon from '@mui/icons-material/Download';
+import ImageSearchIcon from '@mui/icons-material/ImageSearch';
+import PlaylistPlayIcon from '@mui/icons-material/PlaylistPlay';
+import RuleIcon from '@mui/icons-material/Rule';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+
 import { ToastContext } from '../App';
+import {
+  getReportUrl,
+  getTaskDetail,
+  getTaskEvidence,
+  getVideoUrl,
+  type EvidenceResponse,
+  type ScoreCard,
+  type TaskDetail,
+} from '../api/client';
+import DimensionCard from '../components/DimensionCard';
+import ScoreCardDisplay from '../components/ScoreCard';
+import ScoreRadarChart from '../components/RadarChart';
+import VideoPlayer, { type VideoPlayerHandle } from '../components/VideoPlayer';
+
+const categoryByDimension: Record<string, string> = {
+  知识传授: '教学内容',
+  熟练程度: '教学内容',
+  重点难点: '教学内容',
+  教学方式方法: '教学方法',
+  教学逻辑: '教学方法',
+  教学方法灵活应用: '教学方法',
+  组织教学: '教学规范',
+  仪表教态: '教学规范',
+  语言表达及板书设计: '教学规范',
+  关注公平: '教学规范',
+  课堂效果及整体印象: '课堂效果',
+};
+
+const categoryColor: Record<string, string> = {
+  教学内容: '#1d4ed8',
+  教学方法: '#15803d',
+  教学规范: '#b45309',
+  课堂效果: '#7c3aed',
+  其他: '#64748b',
+};
+
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
+function groupByCategory(scoreCard: ScoreCard) {
+  const map = new Map<string, { score: number; maxScore: number }>();
+  scoreCard.dimensions.forEach((dimension) => {
+    const category = categoryByDimension[dimension.name] || '其他';
+    const current = map.get(category) || { score: 0, maxScore: 0 };
+    current.score += dimension.score;
+    current.maxScore += dimension.max_score;
+    map.set(category, current);
+  });
+  return Array.from(map.entries()).map(([name, value]) => ({ name, ...value }));
+}
 
 const DashboardPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useContext(ToastContext);
   const playerRef = useRef<VideoPlayerHandle>(null);
-
   const [task, setTask] = useState<TaskDetail | null>(null);
+  const [evidence, setEvidence] = useState<EvidenceResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!id) return;
-
-    const fetchDetail = async () => {
-      try {
-        const data = await getTaskDetail(id);
-        setTask(data);
-      } catch (err: any) {
-        showToast('获取任务详情失败', 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchDetail();
+    Promise.all([getTaskDetail(id), getTaskEvidence(id)])
+      .then(([detail, evidenceData]) => {
+        setTask(detail);
+        setEvidence(evidenceData);
+      })
+      .catch(() => showToast('获取分析结果失败', 'error'))
+      .finally(() => setLoading(false));
   }, [id, showToast]);
 
-  // 视频跳转回调
-  const handleSeekTo = (seconds: number) => {
-    playerRef.current?.seekTo(seconds);
-  };
+  const scoreCard = task?.scoring_data || null;
+  const categoryData = useMemo(() => (scoreCard ? groupByCategory(scoreCard) : []), [scoreCard]);
+  const weakDimensions = useMemo(() => {
+    if (!scoreCard) return [];
+    return [...scoreCard.dimensions]
+      .sort((a, b) => (a.score / a.max_score) - (b.score / b.max_score))
+      .slice(0, 3);
+  }, [scoreCard]);
+  const evidenceStatus = evidence?.status || task?.evidence_status || null;
+  const lessonEvents = useMemo(() => evidence?.events.slice(0, 12) || [], [evidence]);
+  const keyframes = useMemo(() => evidence?.keyframes.slice(0, 12) || [], [evidence]);
 
   if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-        <CircularProgress />
-      </Box>
-    );
+    return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress /></Box>;
   }
 
   if (!task) {
     return (
       <Box sx={{ textAlign: 'center', py: 8 }}>
-        <Typography variant="h6" color="text.secondary">
-          任务不存在
-        </Typography>
-        <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate('/')}>
-          返回首页
-        </Button>
+        <Typography variant="h6" color="text.secondary">任务不存在</Typography>
+        <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate('/')}>返回</Button>
       </Box>
     );
   }
 
-  const scoreCard = task.scoring_data;
-
-  // 按类目分组的柱状图数据
-  const categoryData = scoreCard
-    ? groupByCategory(scoreCard)
-    : [];
-
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', py: 3, px: 2 }}>
-      {/* 页面标题 */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ maxWidth: 1280, mx: 'auto', px: 3, py: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'flex-start', mb: 3 }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-            {task.filename}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            创建时间：{task.created_at || '未知'} · 状态：{task.status}
+          <Typography variant="h4">{task.filename}</Typography>
+          <Typography color="text.secondary">
+            创建时间：{task.created_at || '-'} · 状态：{task.status}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            startIcon={<DescriptionIcon />}
-            onClick={() => navigate(`/tasks/${id}/report`)}
-          >
+          <Button variant="outlined" startIcon={<DescriptionIcon />} onClick={() => navigate(`/tasks/${id}/report`)}>
             详细报告
           </Button>
-          <Button
-            variant="contained"
-            startIcon={<PictureAsPdfIcon />}
-            href={getReportUrl(id!)}
-            target="_blank"
-          >
+          <Button variant="contained" startIcon={<DownloadIcon />} href={getReportUrl(id!)} target="_blank">
             导出报告
           </Button>
         </Box>
       </Box>
 
-      <Grid2 container spacing={3}>
-        {/* 左侧：视频播放器 */}
-        <Grid2 size={{ xs: 12, md: 5 }}>
+      {scoreCard?.red_line_violation && (
+        <Alert severity="error" icon={<WarningAmberIcon />} sx={{ mb: 3 }}>
+          检测到红线风险，本节课需要优先人工复核。
+        </Alert>
+      )}
+
+      {evidenceStatus && (
+        <Alert
+          severity={evidenceStatus.review_required ? 'warning' : 'success'}
+          icon={<RuleIcon />}
+          sx={{ mb: 3 }}
+        >
+          {evidenceStatus.summary}
+        </Alert>
+      )}
+
+      {evidenceStatus && (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(5, 1fr)' }, gap: 1.5, mb: 3 }}>
+          {[
+            { label: '分析模式', value: evidenceStatus.is_clip ? '片段分析' : '完整课堂' },
+            { label: '视频时长', value: formatDuration(evidenceStatus.duration_seconds) },
+            { label: '教学事件', value: `${evidenceStatus.event_count} 个` },
+            { label: '关键帧', value: `${evidenceStatus.keyframe_count} 张` },
+            { label: '视觉评分', value: evidenceStatus.visual_scored ? '已参与' : '待复核' },
+          ].map((item) => (
+            <Card key={item.label}>
+              <CardContent sx={{ py: 1.5 }}>
+                <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{item.value}</Typography>
+              </CardContent>
+            </Card>
+          ))}
+        </Box>
+      )}
+
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '420px 1fr' }, gap: 3 }}>
+        <Box sx={{ display: 'grid', gap: 2, alignContent: 'start' }}>
           <Card>
             <CardContent>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                视频回放
-              </Typography>
+              <Typography variant="h6" sx={{ mb: 1 }}>课堂视频</Typography>
               <VideoPlayer ref={playerRef} src={getVideoUrl(id!)} />
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                点击评分证据点的时间戳可跳转到对应位置
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                点击证据片段可跳转到对应时间点。
               </Typography>
             </CardContent>
           </Card>
 
-          {/* 红线提示 */}
-          {scoreCard?.red_line_violation && (
-            <Card sx={{ mt: 2, border: '2px solid', borderColor: 'error.main' }}>
-              <CardContent>
-                <Typography variant="subtitle1" color="error" sx={{ fontWeight: 700 }}>
-                  红线违规
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                <ImageSearchIcon color="primary" />
+                <Typography variant="h6">关键帧证据</Typography>
+              </Box>
+              {keyframes.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  暂未找到关键帧。完成分析后，这里会按教学环节展示画面证据。
                 </Typography>
-                <Typography variant="body2" color="error">
-                  检测到红线淘汰行为，该课堂评分为不达标。
-                </Typography>
-              </CardContent>
-            </Card>
-          )}
-        </Grid2>
-
-        {/* 右侧：评分面板 */}
-        <Grid2 size={{ xs: 12, md: 7 }}>
-          {/* 总分卡片 */}
-          {scoreCard && <ScoreCardDisplay scoreCard={scoreCard} />}
-
-          {/* 雷达图 */}
-          {scoreCard && scoreCard.dimensions.length > 0 && (
-            <Card sx={{ mt: 2 }}>
-              <CardContent>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                  维度雷达图
-                </Typography>
-                <ScoreRadarChart dimensions={scoreCard.dimensions} height={350} />
-              </CardContent>
-            </Card>
-          )}
-
-          {/* 按类目柱状图 */}
-          {categoryData.length > 0 && (
-            <Card sx={{ mt: 2 }}>
-              <CardContent>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                  分类得分
-                </Typography>
-                {categoryData.map((cat) => {
-                  const pct = cat.maxScore > 0 ? (cat.score / cat.maxScore) * 100 : 0;
-                  return (
-                    <Box key={cat.name} sx={{ mb: 2 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {cat.name}
+              ) : (
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1 }}>
+                  {keyframes.map((frame) => (
+                    <CardActionArea
+                      key={frame.id}
+                      onClick={() => playerRef.current?.seekTo(frame.timestamp)}
+                      sx={{ borderRadius: 1, overflow: 'hidden', border: '1px solid #e5e7eb' }}
+                    >
+                      <Box
+                        component="img"
+                        src={frame.url}
+                        alt={`${frame.timestamp_display} ${frame.event_type}`}
+                        sx={{ width: '100%', aspectRatio: '16 / 9', display: 'block', objectFit: 'cover', bgcolor: '#111827' }}
+                      />
+                      <Box sx={{ p: 1 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 800 }}>
+                          {frame.timestamp_display} · {frame.event_type || '关键帧'}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {cat.score.toFixed(1)} / {cat.maxScore.toFixed(0)}
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap>
+                          {frame.subtype || frame.description || '点击跳转视频'}
                         </Typography>
                       </Box>
-                      <Box
-                        sx={{
-                          height: 8,
-                          borderRadius: 4,
-                          bgcolor: '#e0e0e0',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            height: '100%',
-                            width: `${pct}%`,
-                            borderRadius: 4,
-                            bgcolor: cat.color,
-                            transition: 'width 0.5s ease',
-                          }}
-                        />
+                    </CardActionArea>
+                  ))}
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+
+          {scoreCard && (
+            <Card>
+              <CardContent>
+                <Typography variant="h6" sx={{ mb: 1.5 }}>四类质量画像</Typography>
+                {categoryData.map((item) => {
+                  const pct = item.maxScore > 0 ? Math.round((item.score / item.maxScore) * 100) : 0;
+                  return (
+                    <Box key={item.name} sx={{ mb: 1.5 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 650 }}>{item.name}</Typography>
+                        <Typography variant="body2" color="text.secondary">{item.score.toFixed(1)} / {item.maxScore.toFixed(0)}</Typography>
+                      </Box>
+                      <Box sx={{ height: 8, borderRadius: 4, bgcolor: '#e5e7eb', overflow: 'hidden' }}>
+                        <Box sx={{ height: '100%', width: `${pct}%`, bgcolor: categoryColor[item.name], borderRadius: 4 }} />
                       </Box>
                     </Box>
                   );
@@ -204,64 +246,91 @@ const DashboardPage: React.FC = () => {
               </CardContent>
             </Card>
           )}
+        </Box>
 
-          {/* 维度列表 */}
-          {scoreCard && scoreCard.dimensions.length > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                各维度详情
-              </Typography>
-              {scoreCard.dimensions.map((dim) => (
-                <DimensionCard
-                  key={dim.name}
-                  dimension={dim}
-                  onSeekTo={handleSeekTo}
-                />
-              ))}
+        <Box>
+          {scoreCard && <ScoreCardDisplay scoreCard={scoreCard} />}
+
+          {scoreCard && (
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mt: 2 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 1 }}>维度雷达</Typography>
+                  <ScoreRadarChart dimensions={scoreCard.dimensions} height={320} />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 1 }}>优先改进项</Typography>
+                  <Box sx={{ display: 'grid', gap: 1 }}>
+                    {weakDimensions.map((dimension) => (
+                      <Box key={dimension.name} sx={{ p: 1.25, border: '1px solid #e5e7eb', borderRadius: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{dimension.name}</Typography>
+                          <Chip size="small" label={`${dimension.score.toFixed(1)}/${dimension.max_score.toFixed(0)}`} />
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, lineHeight: 1.6 }}>
+                          {dimension.evidence || dimension.details || '暂无证据说明'}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </CardContent>
+              </Card>
             </Box>
           )}
-        </Grid2>
-      </Grid2>
+
+          <Card sx={{ mt: 2 }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <PlaylistPlayIcon color="primary" />
+                <Typography variant="h6">教学环节时间线</Typography>
+              </Box>
+              {lessonEvents.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">暂无教学事件。</Typography>
+              ) : (
+                <Box sx={{ display: 'grid' }}>
+                  {lessonEvents.map((event, index) => (
+                    <Box key={`${event.event_type}-${event.start_time}-${index}`}>
+                      <Box
+                        onClick={() => playerRef.current?.seekTo(event.start_time)}
+                        sx={{ display: 'grid', gridTemplateColumns: '76px 1fr auto', gap: 1.5, py: 1.25, cursor: 'pointer' }}
+                      >
+                        <Typography variant="body2" sx={{ fontWeight: 800, color: 'primary.main' }}>
+                          {event.start_time_display}
+                        </Typography>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {event.event_type}{event.subtype ? ` · ${event.subtype}` : ''}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {event.description}
+                          </Typography>
+                        </Box>
+                        <Chip size="small" label={`${Math.round(event.confidence * 100)}%`} variant="outlined" />
+                      </Box>
+                      {index < lessonEvents.length - 1 && <Divider />}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="h6" sx={{ mb: 1 }}>维度评价</Typography>
+            {scoreCard?.dimensions.map((dimension) => (
+              <DimensionCard
+                key={dimension.name}
+                dimension={dimension}
+                onSeekTo={(seconds) => playerRef.current?.seekTo(seconds)}
+              />
+            ))}
+          </Box>
+        </Box>
+      </Box>
     </Box>
   );
 };
-
-/** 按类目分组计算得分 */
-function groupByCategory(scoreCard: ScoreCard) {
-  const catMap = new Map<string, { score: number; maxScore: number; color: string }>();
-
-  const CATEGORY_COLORS: Record<string, string> = {
-    '教学内容': '#1976d2',
-    '教学方法': '#2e7d32',
-    '教学表现力': '#ed6c02',
-    '教学规范': '#ed6c02',
-    '课堂教学效果': '#9c27b0',
-  };
-
-  const CATEGORY_DIM_MAP: Record<string, string> = {
-    '知识传授': '教学内容', '熟练程度': '教学内容', '重点难点': '教学内容',
-    '启发引导': '教学方法', '教学灵活性': '教学方法', '思维方法': '教学方法',
-    '教学方式方法': '教学方法', '教学逻辑': '教学方法', '教学方法灵活应用': '教学方法',
-    '课堂互动': '教学表现力', '课堂节奏': '教学表现力', '语言表达': '教学表现力',
-    '关注激励': '教学表现力', '数学表达能力': '教学表现力', '关注互动': '教学规范',
-    '组织教学': '教学规范', '仪表教态': '教学规范',
-    '语言表达及板书设计': '教学规范', '关注公平': '教学规范', '板书设计': '教学规范',
-    '学习效果': '课堂教学效果', '效果外化': '课堂教学效果',
-    '迁移应用': '课堂教学效果', '课堂效果及整体印象': '课堂教学效果',
-  };
-
-  for (const dim of scoreCard.dimensions) {
-    const cat = CATEGORY_DIM_MAP[dim.name] || '其他';
-    const existing = catMap.get(cat) || { score: 0, maxScore: 0, color: CATEGORY_COLORS[cat] || '#757575' };
-    existing.score += dim.score;
-    existing.maxScore += dim.max_score;
-    catMap.set(cat, existing);
-  }
-
-  const order = ['教学内容', '教学方法', '教学表现力', '教学规范', '课堂教学效果'];
-  return Array.from(catMap.entries())
-    .map(([name, data]) => ({ name, ...data }))
-    .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
-}
 
 export default DashboardPage;

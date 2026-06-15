@@ -50,6 +50,7 @@ class LLMAnalyzer:
         chunk_size: int = 2000,
         chunk_overlap: int = 200,
         level: str = "QC-v4",
+        max_retries: int = 2,
     ) -> None:
         """初始化LLM分析器。
 
@@ -68,6 +69,7 @@ class LLMAnalyzer:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self._level = level  # 评分标准等级，用于Prompt模板条件渲染
+        self.max_retries = max(1, max_retries)
 
         # 初始化OpenAI客户端
         # 显式创建 httpx.Client 并禁用代理 — 翻墙软件的 HTTPS_PROXY 环境变量会
@@ -600,7 +602,7 @@ class LLMAnalyzer:
         Raises:
             LLMAnalyzerError: 调用失败时抛出
         """
-        max_retries = 1  # 只重试1次（qwen-max响应慢，重试太多浪费积分）
+        max_retries = self.max_retries
         base_delay = 2.0
 
         for attempt in range(max_retries):

@@ -40,4 +40,4 @@ COPY --from=frontend-builder /app/web/dist ./web/dist/
 
 EXPOSE 8001
 
-CMD ["uvicorn", "classroom_analyzer.server.app:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["sh", "-c", "uvicorn classroom_analyzer.server.app:app --host 0.0.0.0 --port ${PORT:-8001}"]

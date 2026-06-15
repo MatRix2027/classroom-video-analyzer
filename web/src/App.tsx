@@ -1,77 +1,64 @@
-import React, { useState, useCallback } from 'react';
-import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
+import React, { useCallback, useState } from 'react';
+import { Link, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import {
-  ThemeProvider,
-  createTheme,
-  CssBaseline,
+  Alert,
   AppBar,
+  Box,
+  Button,
+  CssBaseline,
+  Snackbar,
+  ThemeProvider,
   Toolbar,
   Typography,
-  Box,
-  Snackbar,
-  Alert,
-  Button,
+  createTheme,
 } from '@mui/material';
-import UploadIcon from '@mui/icons-material/CloudUpload';
+import AssessmentIcon from '@mui/icons-material/Assessment';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import HistoryIcon from '@mui/icons-material/History';
-import SchoolIcon from '@mui/icons-material/School';
+import RuleIcon from '@mui/icons-material/Rule';
 
-import UploadPage from './pages/UploadPage';
 import AnalyzingPage from './pages/AnalyzingPage';
 import DashboardPage from './pages/DashboardPage';
-import ReportPage from './pages/ReportPage';
 import HistoryPage from './pages/HistoryPage';
+import ReportPage from './pages/ReportPage';
 import StandardsPage from './pages/StandardsPage';
+import UploadPage from './pages/UploadPage';
 
-// 蓝色主题
 const theme = createTheme({
   palette: {
-    primary: {
-      main: '#1565c0',
-      light: '#1e88e5',
-      dark: '#0d47a1',
-    },
-    secondary: {
-      main: '#2e7d32',
-      light: '#4caf50',
-      dark: '#1b5e20',
-    },
-    background: {
-      default: '#f5f7fa',
-      paper: '#ffffff',
-    },
+    primary: { main: '#14532d', light: '#2f855a', dark: '#0f3d25' },
+    secondary: { main: '#1d4ed8' },
+    background: { default: '#f6f7f4', paper: '#ffffff' },
+    success: { main: '#15803d' },
+    warning: { main: '#b45309' },
+    error: { main: '#b91c1c' },
   },
   typography: {
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    h4: { fontWeight: 700 },
-    h5: { fontWeight: 600 },
-    h6: { fontWeight: 600 },
+    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    h4: { fontWeight: 750, letterSpacing: 0 },
+    h5: { fontWeight: 720, letterSpacing: 0 },
+    h6: { fontWeight: 700, letterSpacing: 0 },
+    button: { textTransform: 'none', fontWeight: 650, letterSpacing: 0 },
   },
-  shape: {
-    borderRadius: 12,
-  },
+  shape: { borderRadius: 8 },
   components: {
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: 'none',
-          fontWeight: 600,
-          borderRadius: 8,
-        },
-      },
-    },
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
-          boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+          borderRadius: 8,
+          boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
+          border: '1px solid rgba(15, 23, 42, 0.08)',
         },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: { borderRadius: 8 },
       },
     },
   },
 });
 
-// 全局错误提示 Context
 interface ToastState {
   open: boolean;
   message: string;
@@ -81,7 +68,7 @@ interface ToastState {
 export const ToastContext = React.createContext<{
   showToast: (message: string, severity?: ToastState['severity']) => void;
 }>({
-  showToast: () => {},
+  showToast: () => undefined,
 });
 
 function App() {
@@ -93,16 +80,19 @@ function App() {
     severity: 'info',
   });
 
-  const showToast = useCallback(
-    (message: string, severity: ToastState['severity'] = 'info') => {
-      setToast({ open: true, message, severity });
-    },
-    [],
-  );
+  const showToast = useCallback((message: string, severity: ToastState['severity'] = 'info') => {
+    setToast({ open: true, message, severity });
+  }, []);
 
-  const handleCloseToast = useCallback(() => {
+  const closeToast = useCallback(() => {
     setToast((prev) => ({ ...prev, open: false }));
   }, []);
+
+  const navItems = [
+    { to: '/', label: '新建分析', icon: <CloudUploadIcon /> },
+    { to: '/history', label: '分析记录', icon: <HistoryIcon /> },
+    { to: '/standards', label: '评价标准', icon: <RuleIcon /> },
+  ];
 
   const isAnalyzing = location.pathname.includes('/analyzing');
 
@@ -110,58 +100,40 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <ToastContext.Provider value={{ showToast }}>
-        {/* 顶部导航栏 */}
-        <AppBar position="sticky" elevation={1} sx={{ bgcolor: 'white', color: 'primary.main' }}>
-          <Toolbar>
-            <SchoolIcon sx={{ mr: 1, fontSize: 28 }} />
-            <Typography
-              variant="h6"
-              sx={{ fontWeight: 700, cursor: 'pointer', flexGrow: 0, mr: 4 }}
-              onClick={() => navigate('/')}
-            >
-              火花课堂视频分析
-            </Typography>
-
+        <AppBar position="sticky" elevation={0} sx={{ bgcolor: '#ffffff', color: '#111827', borderBottom: '1px solid #e5e7eb' }}>
+          <Toolbar sx={{ gap: 2, minHeight: 64 }}>
+            <AssessmentIcon sx={{ color: 'primary.main' }} />
+            <Box onClick={() => navigate('/')} sx={{ cursor: 'pointer', mr: 2 }}>
+              <Typography variant="h6" sx={{ lineHeight: 1 }}>
+                课堂质量分析
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                教师授课能力评价工作台
+              </Typography>
+            </Box>
             <Box sx={{ flexGrow: 1 }} />
-
             {!isAnalyzing && (
               <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button
-                  component={Link}
-                  to="/"
-                  startIcon={<UploadIcon />}
-                  color={location.pathname === '/' ? 'primary' : 'inherit'}
-                  variant={location.pathname === '/' ? 'contained' : 'text'}
-                  size="small"
-                >
-                  上传分析
-                </Button>
-                <Button
-                  component={Link}
-                  to="/history"
-                  startIcon={<HistoryIcon />}
-                  color={location.pathname === '/history' ? 'primary' : 'inherit'}
-                  variant={location.pathname === '/history' ? 'contained' : 'text'}
-                  size="small"
-                >
-                  历史记录
-                </Button>
-                <Button
-                  component={Link}
-                  to="/standards"
-                  startIcon={<SchoolIcon />}
-                  color={location.pathname === '/standards' ? 'primary' : 'inherit'}
-                  variant={location.pathname === '/standards' ? 'contained' : 'text'}
-                  size="small"
-                >
-                  评价标准
-                </Button>
+                {navItems.map((item) => {
+                  const active = location.pathname === item.to;
+                  return (
+                    <Button
+                      key={item.to}
+                      component={Link}
+                      to={item.to}
+                      startIcon={item.icon}
+                      variant={active ? 'contained' : 'text'}
+                      color={active ? 'primary' : 'inherit'}
+                    >
+                      {item.label}
+                    </Button>
+                  );
+                })}
               </Box>
             )}
           </Toolbar>
         </AppBar>
 
-        {/* 路由页面 */}
         <Box component="main" sx={{ minHeight: 'calc(100vh - 64px)' }}>
           <Routes>
             <Route path="/" element={<UploadPage />} />
@@ -173,14 +145,13 @@ function App() {
           </Routes>
         </Box>
 
-        {/* 全局错误提示 */}
         <Snackbar
           open={toast.open}
           autoHideDuration={5000}
-          onClose={handleCloseToast}
+          onClose={closeToast}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
         >
-          <Alert onClose={handleCloseToast} severity={toast.severity} variant="filled" sx={{ width: '100%' }}>
+          <Alert onClose={closeToast} severity={toast.severity} variant="filled" sx={{ width: '100%' }}>
             {toast.message}
           </Alert>
         </Snackbar>

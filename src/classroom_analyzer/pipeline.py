@@ -94,15 +94,18 @@ class AnalysisPipeline:
             provider_cfg = llm_config.get("deepseek", {})
             llm_model = provider_cfg.get("model", "deepseek-chat")
             llm_base_url = provider_cfg.get("base_url", "https://api.deepseek.com")
-            llm_api_key = provider_cfg.get("api_key", "")
+            llm_api_key = provider_cfg.get("api_key", "") or llm_config.get("api_key", "")
         else:
             # 默认 doubao（火山方舟）
             provider_cfg = llm_config.get("doubao", {})
-            llm_model = provider_cfg.get("model", "doubao-1.5-pro-32k")
-            llm_base_url = provider_cfg.get("base_url", "https://ark.cn-beijing.volces.com/api/v3")
-            llm_api_key = provider_cfg.get("api_key", "")
+            llm_model = provider_cfg.get("model", llm_config.get("model", "doubao-1.5-pro-32k"))
+            llm_base_url = provider_cfg.get(
+                "base_url",
+                llm_config.get("base_url", "https://ark.cn-beijing.volces.com/api/v3"),
+            )
+            llm_api_key = provider_cfg.get("api_key", "") or llm_config.get("api_key", "")
 
-        if not llm_api_key or "在此粘贴" in llm_api_key:
+        if not llm_api_key or "在此粘贴" in llm_api_key or "在这里粘贴" in llm_api_key:
             raise PipelineError(
                 f"未配置文本模型 API Key！请在 api_keys.json 的 llm.{llm_provider}.api_key 中填写"
             )
@@ -361,6 +364,9 @@ class AnalysisPipeline:
                 output_dir=keyframes_dir,
                 interval_seconds=120.0,  # 每2分钟采样一帧
             )
+            if not isinstance(periodic_frames, list):
+                logger.warning("定期采样截帧返回值不是列表，已忽略该结果")
+                periodic_frames = []
             logger.info(f"定期采样截帧：{len(periodic_frames)} 帧")
         else:
             periodic_frames = []

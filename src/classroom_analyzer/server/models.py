@@ -79,6 +79,63 @@ class ScoreCardSchema(BaseModel):
     num_rounds: int = 1
 
 
+class EvidenceStatus(BaseModel):
+    """分析证据覆盖状态."""
+
+    mode: str = "unknown"
+    duration_seconds: float = 0.0
+    is_clip: bool = False
+    transcript_available: bool = False
+    transcript_segments: int = 0
+    speaker_count: int = 0
+    events_available: bool = False
+    event_count: int = 0
+    keyframes_available: bool = False
+    keyframe_count: int = 0
+    visual_scored: bool = False
+    visual_fallback_dimensions: list[str] = Field(default_factory=list)
+    review_required: bool = True
+    summary: str = ""
+
+
+class TeachingEventSchema(BaseModel):
+    """教学事件证据."""
+
+    event_type: str
+    subtype: str = ""
+    start_time: float
+    end_time: float
+    start_time_display: str = ""
+    end_time_display: str = ""
+    description: str = ""
+    confidence: float = 0.0
+    related_text: str = ""
+
+
+class KeyframeSchema(BaseModel):
+    """关键帧证据."""
+
+    id: str
+    url: str
+    filename: str
+    timestamp: float
+    timestamp_display: str
+    event_type: str = ""
+    subtype: str = ""
+    description: str = ""
+    confidence: float = 0.0
+    related_text: str = ""
+
+
+class EvidenceResponse(BaseModel):
+    """任务证据包."""
+
+    task_id: str
+    status: EvidenceStatus
+    events: list[TeachingEventSchema] = Field(default_factory=list)
+    keyframes: list[KeyframeSchema] = Field(default_factory=list)
+
+
 class TaskDetailResponse(BaseModel):
     """任务详情响应."""
 
@@ -91,6 +148,7 @@ class TaskDetailResponse(BaseModel):
     total_score: Optional[float] = None
     grade: Optional[str] = None
     scoring_data: Optional[ScoreCardSchema] = None
+    evidence_status: Optional[EvidenceStatus] = None
     created_at: Optional[str] = None
     completed_at: Optional[str] = None
 

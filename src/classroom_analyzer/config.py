@@ -131,8 +131,11 @@ class ConfigManager:
         llm = api_keys.get("llm", {})
         llm_provider = llm.get("provider", "doubao")
         provider_cfg = llm.get(llm_provider, {})
+        legacy_llm_key = llm.get("api_key", "")
         llm_key_ok = (
             provider_cfg.get("api_key") and "在这里粘贴" not in provider_cfg.get("api_key", "")
+        ) or (
+            legacy_llm_key and "在这里粘贴" not in legacy_llm_key
         )
         if not llm_key_ok:
             logger.error(
@@ -232,6 +235,7 @@ class ConfigManager:
         # 解析评分维度（按班型选择）
         scoring_data = yaml_config.get("scoring", {})
         dimensions_data = scoring_data.get("dimensions", [])
+        quality_checklist = yaml_config.get("quality_checklist", [])
         
         # 从 levels 嵌套结构中按班型选取
         levels_data = yaml_config.get("levels", {})
@@ -275,7 +279,7 @@ class ConfigManager:
 
         # 提取子配置
         asr_config = api_config.get("asr", {})
-        analysis_config = api_config.get("analysis", {})
+        analysis_config = dict(api_config.get("analysis", {}))
         cos_config = api_config.get("cos", {})
 
         # 合并 YAML analysis 段的配置（优先级低于 API JSON 中的同名字段）

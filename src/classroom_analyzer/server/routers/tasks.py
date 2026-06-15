@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import html as html_module
+import json
+import re
 import typing
 from pathlib import Path
 from typing import Optional
@@ -14,15 +16,22 @@ from pydantic import BaseModel
 
 from classroom_analyzer.server.models import (
     HealthResponse,
+    EvidenceResponse,
+    EvidenceStatus,
+    KeyframeSchema,
     TaskCreated,
     TaskDetailResponse,
     TaskListResponse,
     TaskListItem,
     TaskStatusResponse,
+    TeachingEventSchema,
 )
 from classroom_analyzer.server.services import TaskService
 
 router = APIRouter(prefix="/api", tags=["tasks"])
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+RESULTS_ROOT = PROJECT_ROOT / "data" / "results"
 
 
 # ── 健康检查 ──
@@ -39,13 +48,14 @@ async def health_check() -> HealthResponse:
 @router.get("/config/models")
 async def get_model_config():
     """获取当前使用的模型配置信息。"""
-    import json
-    from pathlib import Path
-
-    api_keys_path = Path(__file__).resolve().parent.parent.parent.parent.parent / "config" / "api_keys.json"
     try:
-        with open(api_keys_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
+        from classroom_analyzer.config import ConfigManager
+
+        manager = ConfigManager(
+            config_path=str(PROJECT_ROOT / "config" / "default.yaml"),
+            api_keys_path=str(PROJECT_ROOT / "config" / "api_keys.json"),
+        )
+        config = manager._load_json()
         llm = config.get("llm", {})
         vision = config.get("vision", {})
 
@@ -228,6 +238,8 @@ async def get_task_detail(task_id: str) -> TaskDetailResponse:
         except Exception:
             scoring_data = None
 
+    evidence_status = _build_evidence_status(task_id, scoring_data)
+
     return TaskDetailResponse(
         id=task["id"],
         filename=task["filename"],
@@ -238,9 +250,61 @@ async def get_task_detail(task_id: str) -> TaskDetailResponse:
         total_score=task.get("total_score"),
         grade=task.get("grade"),
         scoring_data=scoring_data,
+        evidence_status=evidence_status,
         created_at=task.get("created_at"),
         completed_at=task.get("completed_at"),
     )
+
+
+@router.get("/tasks/{task_id}/evidence", response_model=EvidenceResponse)
+async def get_task_evidence(task_id: str) -> EvidenceResponse:
+    """获取任务证据包：教学事件、关键帧、证据覆盖状态。"""
+    task = TaskService.get_task_detail(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    scoring_data = None
+    if task.get("scoring_data"):
+        try:
+            from classroom_analyzer.server.models import ScoreCardSchema
+            scoring_data = ScoreCardSchema.model_validate_json(task["scoring_data"])
+        except Exception:
+            scoring_data = None
+
+    events = _load_events(task_id)
+    keyframes = _load_keyframes(task_id, events)
+    status = _build_evidence_status(task_id, scoring_data, events=events, keyframe_count=len(keyframes))
+
+    return EvidenceResponse(
+        task_id=task_id,
+        status=status,
+        events=[TeachingEventSchema(**event) for event in events],
+        keyframes=keyframes,
+    )
+
+
+@router.get("/tasks/{task_id}/keyframes/{frame_id}")
+async def get_keyframe(task_id: str, frame_id: str) -> FileResponse:
+    """安全返回关键帧图片。"""
+    safe_name = Path(frame_id).name
+    if safe_name != frame_id:
+        raise HTTPException(status_code=400, detail="非法关键帧路径")
+
+    keyframes_root = RESULTS_ROOT / task_id / "keyframes"
+    if not keyframes_root.exists():
+        raise HTTPException(status_code=404, detail="关键帧不存在")
+
+    candidates = list(keyframes_root.rglob(safe_name))
+    if not candidates:
+        raise HTTPException(status_code=404, detail="关键帧不存在")
+
+    frame_path = candidates[0].resolve()
+    try:
+        frame_path.relative_to(keyframes_root.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="非法关键帧路径") from None
+
+    return FileResponse(frame_path, media_type="image/jpeg")
 
 
 @router.get("/tasks/{task_id}/status", response_model=TaskStatusResponse)
@@ -348,6 +412,181 @@ async def get_report_pdf(task_id: str) -> HTMLResponse:
 
 
 # ── 辅助函数 ──
+
+
+def _format_seconds(seconds: float | int | None) -> str:
+    """格式化秒数为 MM:SS / H:MM:SS。"""
+    if seconds is None:
+        return "-"
+    total = max(0, int(float(seconds)))
+    hours = total // 3600
+    minutes = (total % 3600) // 60
+    secs = total % 60
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _load_json_file(path: Path) -> typing.Any:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _load_events(task_id: str) -> list[dict]:
+    data = _load_json_file(RESULTS_ROOT / task_id / "events.json")
+    if not isinstance(data, list):
+        return []
+    events: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        start_time = float(item.get("start_time") or 0)
+        end_time = float(item.get("end_time") or start_time)
+        events.append({
+            "event_type": str(item.get("event_type") or ""),
+            "subtype": str(item.get("subtype") or ""),
+            "start_time": start_time,
+            "end_time": end_time,
+            "start_time_display": str(item.get("start_time_display") or _format_seconds(start_time)),
+            "end_time_display": str(item.get("end_time_display") or _format_seconds(end_time)),
+            "description": str(item.get("description") or ""),
+            "confidence": float(item.get("confidence") or 0),
+            "related_text": str(item.get("related_text") or ""),
+        })
+    return events
+
+
+def _infer_timestamp_from_filename(filename: str) -> float | None:
+    matches = re.findall(r"(\d+)", filename)
+    if not matches:
+        return None
+    return float(matches[-1])
+
+
+def _nearest_event(timestamp: float, events: list[dict]) -> dict | None:
+    if not events:
+        return None
+    overlapping = [
+        event for event in events
+        if float(event.get("start_time", 0)) <= timestamp <= float(event.get("end_time", 0))
+    ]
+    if overlapping:
+        return overlapping[0]
+    return min(events, key=lambda event: abs(float(event.get("start_time", 0)) - timestamp))
+
+
+def _load_keyframes(task_id: str, events: list[dict]) -> list[KeyframeSchema]:
+    keyframes_root = RESULTS_ROOT / task_id / "keyframes"
+    if not keyframes_root.exists():
+        return []
+
+    files = sorted(
+        [
+            path for path in keyframes_root.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+        ],
+        key=lambda path: (_infer_timestamp_from_filename(path.name) or 0, path.name),
+    )
+
+    frames: list[KeyframeSchema] = []
+    seen: set[str] = set()
+    for path in files:
+        if path.name in seen:
+            continue
+        seen.add(path.name)
+        timestamp = _infer_timestamp_from_filename(path.name)
+        if timestamp is None:
+            timestamp = 0.0
+        event = _nearest_event(timestamp, events) or {}
+        frames.append(KeyframeSchema(
+            id=path.name,
+            filename=path.name,
+            url=f"/api/tasks/{task_id}/keyframes/{path.name}",
+            timestamp=timestamp,
+            timestamp_display=_format_seconds(timestamp),
+            event_type=str(event.get("event_type") or ""),
+            subtype=str(event.get("subtype") or ""),
+            description=str(event.get("description") or ""),
+            confidence=float(event.get("confidence") or 0),
+            related_text=str(event.get("related_text") or ""),
+        ))
+
+    return frames
+
+
+def _load_transcript_stats(task_id: str) -> tuple[bool, int, int, float]:
+    transcript_path = RESULTS_ROOT / task_id / "transcript.txt"
+    if not transcript_path.exists():
+        return False, 0, 0, 0.0
+
+    text = transcript_path.read_text(encoding="utf-8", errors="ignore")
+    lines = [line for line in text.splitlines() if line.strip()]
+    speakers = set()
+    max_end = 0.0
+    for line in lines:
+        match = re.match(r"\[(\d+):(\d+)-(\d+):(\d+)\]\s+([^:]+):", line)
+        if match:
+            end_minutes = int(match.group(3))
+            end_seconds = int(match.group(4))
+            max_end = max(max_end, end_minutes * 60 + end_seconds)
+            speakers.add(match.group(5).strip())
+    return True, len(lines), len(speakers), max_end
+
+
+def _build_evidence_status(
+    task_id: str,
+    scoring_data: typing.Any,
+    *,
+    events: list[dict] | None = None,
+    keyframe_count: int | None = None,
+) -> EvidenceStatus:
+    if events is None:
+        events = _load_events(task_id)
+    if keyframe_count is None:
+        keyframe_count = len(_load_keyframes(task_id, events))
+
+    transcript_available, transcript_segments, speaker_count, duration = _load_transcript_stats(task_id)
+    visual_fallback_dimensions: list[str] = []
+    visual_scored = False
+    if scoring_data and getattr(scoring_data, "dimensions", None):
+        for dimension in scoring_data.dimensions:
+            if dimension.source_model == "vision":
+                visual_scored = True
+            if dimension.name in {"仪表教态", "语言表达及板书设计"} and dimension.source_model != "vision":
+                visual_fallback_dimensions.append(dimension.name)
+
+    is_clip = 0 < duration < 20 * 60
+    keyframes_available = keyframe_count > 0
+    review_required = is_clip or not visual_scored or bool(visual_fallback_dimensions)
+    if not keyframes_available:
+        summary = "未提取到关键帧，当前报告只能作为文本初评。"
+    elif not visual_scored:
+        summary = "已提取关键帧，但视觉评分未进入最终评分，需人工复核视觉维度。"
+    elif is_clip:
+        summary = "当前为课堂片段，适合做片段观察与风险提示，不建议直接作为完整课终评。"
+    else:
+        summary = "文本、事件与视觉证据已覆盖，可进入质检复核。"
+
+    return EvidenceStatus(
+        mode="clip" if is_clip else "full_lesson",
+        duration_seconds=duration,
+        is_clip=is_clip,
+        transcript_available=transcript_available,
+        transcript_segments=transcript_segments,
+        speaker_count=speaker_count,
+        events_available=bool(events),
+        event_count=len(events),
+        keyframes_available=keyframes_available,
+        keyframe_count=keyframe_count,
+        visual_scored=visual_scored,
+        visual_fallback_dimensions=visual_fallback_dimensions,
+        review_required=review_required,
+        summary=summary,
+    )
 
 
 def _get_content_type(path: Path) -> str:

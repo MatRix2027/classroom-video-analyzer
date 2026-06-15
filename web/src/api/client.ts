@@ -1,12 +1,9 @@
 import axios from 'axios';
 
-// ── API 基础实例 ──
 const api = axios.create({
   baseURL: '/api',
-  timeout: 300000, // 5 分钟（大文件上传）
+  timeout: 300000,
 });
-
-// ── TypeScript 类型定义 ──
 
 export type TaskStatusType =
   | 'pending'
@@ -36,9 +33,8 @@ export interface ScoreDimension {
   timestamp: number | null;
   score_std: number | null;
   round_scores: number[];
+  source_model?: 'text' | 'vision' | 'vision_enhanced';
   scoring_points: ScoringPoint[];
-  /** 评分来源："text"（文本模型）或 "vision"（视觉模型） */
-  source_model?: 'text' | 'vision';
 }
 
 export interface ScoreCard {
@@ -49,6 +45,58 @@ export interface ScoreCard {
   red_line_violation: boolean;
   level: string;
   num_rounds: number;
+  narrative_summary?: string;
+  interaction_chains_summary?: string;
+  visual_observation_summary?: string | Record<string, unknown>;
+}
+
+export interface EvidenceStatus {
+  mode: 'clip' | 'full_lesson' | 'unknown';
+  duration_seconds: number;
+  is_clip: boolean;
+  transcript_available: boolean;
+  transcript_segments: number;
+  speaker_count: number;
+  events_available: boolean;
+  event_count: number;
+  keyframes_available: boolean;
+  keyframe_count: number;
+  visual_scored: boolean;
+  visual_fallback_dimensions: string[];
+  review_required: boolean;
+  summary: string;
+}
+
+export interface TeachingEvent {
+  event_type: string;
+  subtype: string;
+  start_time: number;
+  end_time: number;
+  start_time_display: string;
+  end_time_display: string;
+  description: string;
+  confidence: number;
+  related_text: string;
+}
+
+export interface KeyframeEvidence {
+  id: string;
+  url: string;
+  filename: string;
+  timestamp: number;
+  timestamp_display: string;
+  event_type: string;
+  subtype: string;
+  description: string;
+  confidence: number;
+  related_text: string;
+}
+
+export interface EvidenceResponse {
+  task_id: string;
+  status: EvidenceStatus;
+  events: TeachingEvent[];
+  keyframes: KeyframeEvidence[];
 }
 
 export interface TaskCreated {
@@ -72,6 +120,7 @@ export interface TaskDetail {
   total_score: number | null;
   grade: string | null;
   scoring_data: ScoreCard | null;
+  evidence_status?: EvidenceStatus | null;
   created_at: string | null;
   completed_at: string | null;
 }
@@ -126,12 +175,16 @@ export interface StandardsResponse {
   }>;
 }
 
-// ── API 函数 ──
+export interface ModelConfig {
+  text_model: string;
+  vision_provider: string;
+  vision_model: string;
+  vision_enabled: boolean;
+}
 
-/** 上传视频并创建分析任务（旧版单次上传，仅作备用，大文件请使用 uploadVideoChunked） */
 export const uploadVideo = async (
   file: File,
-  level: string = 'L4_L6',
+  level: string = 'QC-v4',
   onProgress?: (pct: number) => void,
 ): Promise<TaskCreated> => {
   const formData = new FormData();
@@ -139,11 +192,9 @@ export const uploadVideo = async (
 
   const response = await api.post<TaskCreated>('/tasks', formData, {
     params: { level, auto_start: true },
-    // 不要手动设置 Content-Type，让浏览器自动添加含 boundary 的 multipart/form-data
     onUploadProgress: (event) => {
       if (event.total && onProgress) {
-        const pct = Math.round((event.loaded / event.total) * 100);
-        onProgress(pct);
+        onProgress(Math.round((event.loaded / event.total) * 100));
       }
     },
   });
@@ -151,19 +202,21 @@ export const uploadVideo = async (
   return response.data;
 };
 
-/** 获取任务状态（轮询用） */
 export const getTaskStatus = async (id: string): Promise<TaskStatus> => {
   const response = await api.get<TaskStatus>(`/tasks/${id}/status`);
   return response.data;
 };
 
-/** 获取任务详情 */
 export const getTaskDetail = async (id: string): Promise<TaskDetail> => {
   const response = await api.get<TaskDetail>(`/tasks/${id}`);
   return response.data;
 };
 
-/** 获取任务列表 */
+export const getTaskEvidence = async (id: string): Promise<EvidenceResponse> => {
+  const response = await api.get<EvidenceResponse>(`/tasks/${id}/evidence`);
+  return response.data;
+};
+
 export const getTaskList = async (
   page: number = 1,
   pageSize: number = 10,
@@ -175,25 +228,26 @@ export const getTaskList = async (
   return response.data;
 };
 
-/** 获取标准 */
 export const getStandards = async (): Promise<StandardsResponse> => {
   const response = await api.get<StandardsResponse>('/standards');
   return response.data;
 };
 
-// ── 分块上传（解决 Cloudflare 100s 超时） ──
+export const getModelConfig = async (): Promise<ModelConfig> => {
+  const response = await api.get<ModelConfig>('/config/models');
+  return response.data;
+};
 
-const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB 每块（慢速网络友好）
-const CHUNK_UPLOAD_TIMEOUT = 120_000; // 单块上传超时 120s
-const MAX_CHUNK_RETRIES = 2; // 单块最大重试次数
-const PARALLEL_UPLOADS = 5; // 并发上传数（5 路并行，理论上 5 倍提速）
+const CHUNK_SIZE = 1 * 1024 * 1024;
+const CHUNK_UPLOAD_TIMEOUT = 120_000;
+const MAX_CHUNK_RETRIES = 2;
+const PARALLEL_UPLOADS = 5;
 
 export interface ChunkInitResponse {
   upload_id: string;
   chunk_size: number;
 }
 
-/** 初始化分块上传会话 */
 export const initChunkedUpload = async (
   filename: string,
   extension: string,
@@ -207,7 +261,6 @@ export const initChunkedUpload = async (
   return response.data;
 };
 
-/** 上传单个分块（含重试） */
 export const uploadChunk = async (
   uploadId: string,
   chunkIndex: number,
@@ -217,29 +270,22 @@ export const uploadChunk = async (
   formData.append('file', chunk, `chunk_${chunkIndex}`);
 
   let lastError: unknown = null;
-  for (let attempt = 1; attempt <= MAX_CHUNK_RETRIES; attempt++) {
+  for (let attempt = 1; attempt <= MAX_CHUNK_RETRIES; attempt += 1) {
     try {
       await api.post(`/tasks/upload/${uploadId}/${chunkIndex}`, formData, {
-        // 不要手动设置 Content-Type，让浏览器自动添加含 boundary 的 multipart/form-data
         timeout: CHUNK_UPLOAD_TIMEOUT,
       });
-      return; // 上传成功
+      return;
     } catch (err: unknown) {
       lastError = err;
-      console.warn(
-        `[分块上传] 分块 ${chunkIndex} 第 ${attempt}/${MAX_CHUNK_RETRIES} 次上传失败:`,
-        err,
-      );
       if (attempt < MAX_CHUNK_RETRIES) {
-        // 指数退避：1s, 2s, 4s...
-        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
       }
     }
   }
   throw lastError;
 };
 
-/** 完成分块上传，组装并创建任务 */
 export const completeChunkedUpload = async (
   uploadId: string,
   level: string,
@@ -251,12 +297,6 @@ export const completeChunkedUpload = async (
   return response.data;
 };
 
-/**
- * 分块上传完整流程：init → parallel chunks → complete
- * 返回 TaskCreated，与 uploadVideo 接口兼容
- *
- * @param onProgress 进度回调 (0-100) + 状态文字
- */
 export const uploadVideoChunked = async (
   file: File,
   level: string = 'QC-v4',
@@ -264,16 +304,12 @@ export const uploadVideoChunked = async (
 ): Promise<TaskCreated> => {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-  // Step 1: 初始化
   const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-  console.log(`[分块上传] 初始化，${sizeMB} MB，${totalChunks} 块，${PARALLEL_UPLOADS} 路并发`);
-  onProgress?.(0, `准备上传 ${sizeMB} MB（${totalChunks} 块）...`);
+
+  onProgress?.(0, `准备上传 ${sizeMB} MB，共 ${totalChunks} 个分块`);
   const { upload_id } = await initChunkedUpload(file.name, ext, file.size);
 
-  // Step 2: 并行上传（信号量控制并发数）
   let completed = 0;
-  let failed = 0;
   const errors: Array<{ index: number; err: unknown }> = [];
 
   const uploadOne = async (i: number): Promise<void> => {
@@ -283,58 +319,37 @@ export const uploadVideoChunked = async (
 
     try {
       await uploadChunk(upload_id, i, chunk);
-      completed++;
+      completed += 1;
       const pct = Math.round((completed / totalChunks) * 100);
-      const speedHint =
-        completed > 1 && completed < totalChunks
-          ? `（${PARALLEL_UPLOADS} 路并发中）`
-          : '';
-      onProgress?.(pct, `${completed}/${totalChunks} 块完成${speedHint}`);
+      onProgress?.(pct, `已上传 ${completed}/${totalChunks} 个分块`);
     } catch (err) {
-      failed++;
       errors.push({ index: i, err });
-      // 单个块失败不阻断其他块
     }
   };
 
-  // 并发池：用一个游标分配任务到 N 个 worker
   let cursor = 0;
   const worker = async (): Promise<void> => {
-    while (cursor < totalChunks && failed === 0) {
-      const i = cursor++;
+    while (cursor < totalChunks && errors.length === 0) {
+      const i = cursor;
+      cursor += 1;
       await uploadOne(i);
     }
   };
 
-  // 启动 PARALLEL_UPLOADS 个 worker
-  const workers = Array.from({ length: Math.min(PARALLEL_UPLOADS, totalChunks) }, () =>
-    worker(),
+  await Promise.all(
+    Array.from({ length: Math.min(PARALLEL_UPLOADS, totalChunks) }, () => worker()),
   );
-  await Promise.all(workers);
 
-  // 有失败的块？
-  if (failed > 0) {
-    const firstErr = errors[0];
-    console.error(`[分块上传] ${failed}/${totalChunks} 块失败，首个: 块#${firstErr.index}`, firstErr.err);
-    throw new Error(
-      `${failed}/${totalChunks} 个分块上传失败（块#${errors.map((e) => e.index).join(',')}），请检查网络后重试`,
-    );
+  if (errors.length > 0) {
+    throw new Error(`分块上传失败：${errors.map((e) => e.index).join(', ')}`);
   }
 
-  // Step 3: 组装完成
-  console.log('[分块上传] 全部块上传完成，正在组装...');
-  onProgress?.(100, '正在组装文件...');
-  return await completeChunkedUpload(upload_id, level);
+  onProgress?.(100, '文件组装中，正在创建分析任务');
+  return completeChunkedUpload(upload_id, level);
 };
 
-/** 获取视频 URL */
-export const getVideoUrl = (taskId: string): string => {
-  return `/api/tasks/${taskId}/video`;
-};
+export const getVideoUrl = (taskId: string): string => `/api/tasks/${taskId}/video`;
 
-/** 获取报告 URL */
-export const getReportUrl = (taskId: string): string => {
-  return `/api/tasks/${taskId}/report/pdf`;
-};
+export const getReportUrl = (taskId: string): string => `/api/tasks/${taskId}/report/pdf`;
 
 export default api;

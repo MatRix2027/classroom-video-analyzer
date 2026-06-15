@@ -26,6 +26,11 @@ cd web && npm install && npm run build
 uvicorn classroom_analyzer.server.app:app --host 0.0.0.0 --port 8001
 ```
 
+## 项目推进
+
+- [项目立项与推进机制](docs/PROJECT_INITIATION_AND_DELIVERY.md)
+- [项目决策记录](docs/DECISIONS.md)
+
 ## 云端部署 (Render)
 
 1. Fork 本仓库到你的 GitHub
