@@ -1,0 +1,68 @@
+classDiagram
+    direction TB
+
+    class Task {
+        +str id
+        +str filename
+        +str file_path
+        +int file_size
+        +float duration
+        +str level
+        +str status
+        +int step
+        +str step_label
+        +float progress
+        +str error_msg
+        +datetime created_at
+        +datetime updated_at
+        +str user_id
+    }
+
+    class AnalysisResultDB {
+        +str id
+        +str task_id
+        +float total_score
+        +float total_max
+        +str grade
+        +str grade_color
+        +bool red_line_violation
+        +str dimensions_json
+        +str scoring_points_json
+        +str red_lines_json
+        +str summary
+        +datetime created_at
+    }
+
+    class TaskService {
+        -dict _running_tasks
+        +create_task(video_path, level) Task
+        +run_pipeline(task_id) None
+        +get_status(task_id) TaskStatusResponse
+        +get_result(task_id) TaskDetailResponse
+        +list_tasks(search, page, size) list
+        +_progress_callback(task_id, step, msg) None
+    }
+
+    class Database {
+        +init_db() None
+        +insert_task(task) None
+        +update_task(task_id, **kwargs) None
+        +get_task(task_id) Task
+        +list_tasks(search, page, size) list
+        +insert_result(result) None
+        +get_result(task_id) AnalysisResultDB
+    }
+
+    class PDFGenerator {
+        +generate(task_id, result) str
+        -_render_html(result) str
+    }
+
+    class AnalysisPipeline {
+        +run(video_path, output_dir, progress_callback) AnalysisResult
+    }
+
+    Task "1" --> "0..1" AnalysisResultDB : has_result
+    TaskService --> Database : uses
+    TaskService --> AnalysisPipeline : runs
+    TaskService --> PDFGenerator : uses

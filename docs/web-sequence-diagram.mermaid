@@ -1,0 +1,39 @@
+sequenceDiagram
+    participant U as 用户浏览器
+    participant F as FastAPI
+    participant S as TaskService
+    participant P as AnalysisPipeline
+    participant DB as SQLite
+
+    U->>F: POST /api/tasks (video + level)
+    F->>S: create_task(video_path, level)
+    S->>DB: INSERT tasks (status=pending)
+    S-->>F: {task_id}
+    F-->>U: {task_id, status="pending"}
+
+    S->>P: run(video_path, output_dir, progress_cb)
+    Note over P: 后台线程执行
+
+    loop 前端轮询 (每2秒)
+        U->>F: GET /api/tasks/{id}/status
+        F->>DB: SELECT status, step, progress
+        DB-->>F: {status="processing", step=2, ...}
+        F-->>U: {step=2, step_label="ASR识别", progress=0.5}
+    end
+
+    P->>S: progress_cb(step, msg)
+    S->>DB: UPDATE tasks SET step, progress
+
+    Note over P: 分析完成
+    P-->>S: AnalysisResult
+    S->>DB: INSERT results (scores, dimensions, scoring_points...)
+    S->>DB: UPDATE tasks SET status=completed
+
+    U->>F: GET /api/tasks/{id}/status
+    F-->>U: {status="completed"}
+    U->>F: GET /api/tasks/{id}
+    F-->>U: TaskDetailResponse (含完整结果)
+
+    Note over U: 渲染仪表盘 + 报告
+    U->>F: GET /api/tasks/{id}/video (流式)
+    F-->>U: video/mp4 stream

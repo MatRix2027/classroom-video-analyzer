@@ -1,0 +1,63 @@
+classDiagram
+    class AnalysisMode {
+        <<enumeration>>
+        QC
+        HIGHLIGHT
+        FULL_PORTRAIT
+    }
+
+    class VisualFrame {
+        +str file_path
+        +float timestamp
+        +float ssim_score
+    }
+
+    class VisualAnalysisResult {
+        +list~VisualFrame~ frames
+        +str teacher_demeanor
+        +str board_ppt_quality
+        +str interaction_posture
+        +str classroom_atmosphere
+        +str student_engagement
+        +str raw_json
+        +str summary
+    }
+
+    class AnalysisResult {
+        +VideoInfo video_info
+        +AudioInfo audio_info
+        +Transcript transcript
+        +EventTimeline event_timeline
+        +list~KeyFrame~ keyframes
+        +QualityReport quality_report
+        +ScoreCard score_card
+        +VisualAnalysisResult visual_analysis
+        +str output_dir
+    }
+
+    class VisualAnalyzer {
+        -str _ffmpeg_path
+        -float _interval_sec
+        -float _ssim_threshold
+        -int _batch_size
+        -OpenAI _client
+        +analyze(video_path, duration, output_dir) VisualAnalysisResult
+        -_capture_frames(video_path, duration, output_dir) list~VisualFrame~
+        -_ssim_dedup(frames) list~VisualFrame~
+        -_call_multimodal_llm(frames) str
+        -_parse_visual_response(response) VisualAnalysisResult
+    }
+
+    class LLMAnalyzer {
+        +assess_quality(transcript, events, checklist, dimensions, visual_result, ...) tuple
+    }
+
+    class AnalysisPipeline {
+        +run(video_path, output_dir, mode, progress_callback) AnalysisResult
+        -_analyze_visual(video_path, duration, output_dir) VisualAnalysisResult
+    }
+
+    AnalysisResult *-- VisualAnalysisResult
+    VisualAnalysisResult *-- VisualFrame
+    AnalysisPipeline --> VisualAnalyzer : uses
+    AnalysisPipeline --> LLMAnalyzer : passes visual_result

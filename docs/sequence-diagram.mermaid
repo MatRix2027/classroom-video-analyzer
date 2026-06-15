@@ -1,0 +1,42 @@
+sequenceDiagram
+    participant U as 用户
+    participant FE as 前端 UploadPage
+    participant API as FastAPI /api/tasks
+    participant SVC as TaskService
+    participant PL as AnalysisPipeline
+    participant ASR as TencentASR
+    participant VA as VisualAnalyzer
+    participant VL as DeepSeek多模态
+    participant LA as LLMAnalyzer
+    participant DB as SQLite
+
+    U->>FE: 选择模式卡片 + 上传视频
+    FE->>API: POST /tasks (file + analysis_mode)
+    API->>SVC: create_task + start_analysis(mode)
+    SVC->>DB: INSERT (含 analysis_mode)
+    SVC-->>PL: 后台线程启动 pipeline.run(mode)
+
+    PL->>PL: [1] 读取视频文件
+    PL->>PL: [2] FFmpeg提取音频
+    PL->>ASR: [3] 腾讯云ASR转文字
+    ASR-->>PL: Transcript
+
+    Note over PL,VA: ★ V2新增步骤 ★
+    PL->>VA: [4] _analyze_visual(video_path)
+    loop 每30s截帧
+        VA->>VA: FFmpeg截帧 → SSIM去重
+    end
+    VA->>VL: 批量5-10帧 → 多模态分析
+    VL-->>VA: 结构化视觉JSON
+    VA-->>PL: VisualAnalysisResult
+
+    PL->>LA: [5] assess_quality(transcript, events, visual_result)
+    Note over LA: 融合文本+视觉双维度评分
+    LA-->>PL: QualityCheckItems + ScoreDimensions
+
+    PL->>PL: [6] 事件驱动截帧
+    PL->>PL: [7] 生成报告
+    PL-->>SVC: AnalysisResult
+    SVC->>DB: UPDATE completed
+    FE->>API: 轮询 GET /tasks/{id}/status
+    API-->>FE: status=completed → 跳转 Dashboard

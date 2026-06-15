@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+venv/
+
+# 视频和音频文件
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.mp3
+
+# 运行产物
+outputs/
+output/
+tasks/
+data/
+keyframes/
+*.jpg
+*.png
+!web/public/*.png
+
+# 前端
+web/node_modules/
+web/.vite/
+web/dist/
+
+# 环境和密钥
+.env
+config/api_keys.json
+.cloudflare-url
+
+# IDE
+.vscode/
+.idea/
+.workbuddy/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.log
+*.tmp
+overview.md

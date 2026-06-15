@@ -1,0 +1,42 @@
+{
+  "tencent_cloud": {
+    "secret_id": "在这里粘贴你的SecretId",
+    "secret_key": "在这里粘贴你的SecretKey"
+  },
+  "cos": {
+    "bucket": "your-bucket-name-1234567890",
+    "region": "ap-guangzhou",
+    "path_prefix": "asr-upload/"
+  },
+  "asr": {
+    "engine": "16k_zh",
+    "language": "zh",
+    "enable_diarization": true,
+    "speaker_number": 0
+  },
+  "llm": {
+    "comment": "文本模型（推荐 qwen-max 通过阿里云 DashScope）",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "api_key": "在这里粘贴你的 DashScope API Key",
+    "model": "qwen-max"
+  },
+  "vision": {
+    "comment": "视觉模型 — provider 可选: qwen_vl（阿里云DashScope）/ doubao_vision（火山方舟）",
+    "provider": "qwen_vl",
+    "api_key": "在这里粘贴视觉模型的 API Key",
+    "qwen_vl": {
+      "model": "qwen-vl-max",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    },
+    "doubao_vision": {
+      "model": "doubao-vision-pro-32k",
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+      "api_key": "在这里粘贴火山方舟 API Key"
+    }
+  },
+  "analysis": {
+    "chunk_size": 2000,
+    "chunk_overlap": 200,
+    "smart_sampling": true
+  }
+}
