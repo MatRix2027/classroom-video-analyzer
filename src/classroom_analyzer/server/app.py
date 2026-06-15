@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,11 +11,12 @@ from fastapi.responses import FileResponse
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from classroom_analyzer.paths import get_project_root
 from classroom_analyzer.server.database import init_db
 from classroom_analyzer.server.routers import standards, tasks
 
 # 项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = get_project_root()
 WEB_DIST_DIR = PROJECT_ROOT / "web" / "dist"
 
 

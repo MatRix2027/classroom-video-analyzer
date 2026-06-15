@@ -10,10 +10,11 @@ from typing import Any, Callable, Optional
 
 from loguru import logger
 
+from classroom_analyzer.paths import get_project_root
 from classroom_analyzer.server import database as db
 
 # 项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = get_project_root()
 DATA_DIR = PROJECT_ROOT / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 RESULTS_DIR = DATA_DIR / "results"

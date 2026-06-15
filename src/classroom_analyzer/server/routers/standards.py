@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 from fastapi import APIRouter
 
+from classroom_analyzer.paths import get_project_root
 from classroom_analyzer.server.models import (
     StandardDimension,
     StandardLevel,
@@ -17,7 +18,7 @@ from classroom_analyzer.server.models import (
 router = APIRouter(prefix="/api", tags=["standards"])
 
 # 项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+PROJECT_ROOT = get_project_root()
 CONFIG_PATH = PROJECT_ROOT / "config" / "default.yaml"
 
 

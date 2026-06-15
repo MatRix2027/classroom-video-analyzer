@@ -10,8 +10,10 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from classroom_analyzer.paths import get_project_root
+
 # 项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = get_project_root()
 DATA_DIR = PROJECT_ROOT / "data"
 DB_PATH = DATA_DIR / "tasks.db"
 

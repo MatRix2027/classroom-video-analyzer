@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
+from classroom_analyzer.paths import get_project_root
 from classroom_analyzer.server.models import (
     HealthResponse,
     EvidenceResponse,
@@ -30,7 +31,7 @@ from classroom_analyzer.server.services import TaskService
 
 router = APIRouter(prefix="/api", tags=["tasks"])
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+PROJECT_ROOT = get_project_root()
 RESULTS_ROOT = PROJECT_ROOT / "data" / "results"
 
 

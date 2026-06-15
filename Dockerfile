@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+ENV CLASSROOM_ANALYZER_PROJECT_ROOT=/app
 
 # 安装构建工具（pyproject.toml 需要）
 RUN pip install --no-cache-dir setuptools wheel
