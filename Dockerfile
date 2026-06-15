@@ -17,12 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 安装Python依赖（不含 dev 依赖，加快构建）
+# 先复制源码（pip install -e . 需要读取 src/ 目录）
 COPY pyproject.toml ./
+COPY src/ ./src/
 RUN pip install --no-cache-dir -e "."
 
-# 复制源码
-COPY src/ ./src/
+# 复制配置和Prompt模板
 COPY config/ ./config/
 COPY prompts/ ./prompts/
 
