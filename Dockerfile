@@ -17,9 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 安装Python依赖
+# 安装Python依赖（不含 dev 依赖，加快构建）
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[dev]"
+RUN pip install --no-cache-dir -e "."
 
 # 复制源码
 COPY src/ ./src/
