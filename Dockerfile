@@ -8,7 +8,7 @@ COPY web/ ./
 RUN npm run build
 
 # ── 阶段2: Python应用 ──
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 # 安装FFmpeg和系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,10 +17,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 先复制源码（pip install -e . 需要读取 src/ 目录）
+# 安装构建工具（pyproject.toml 需要）
+RUN pip install --no-cache-dir setuptools wheel
+
+# 复制所有源码（必须在 pip install 之前）
 COPY pyproject.toml ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir -e "."
+
+# 安装 Python 依赖（非 editable 模式，Docker 更稳定）
+RUN pip install --no-cache-dir .
 
 # 复制配置和Prompt模板
 COPY config/ ./config/
@@ -29,7 +34,7 @@ COPY prompts/ ./prompts/
 # 复制前端构建产物
 COPY --from=frontend-builder /app/web/dist ./web/dist/
 
-# 环境变量（通过Render/Railway的环境变量面板配置）
+# 环境变量（通过Render环境变量面板配置）
 # API_KEYS_JSON - 完整的API密钥配置JSON
 # PORT - 服务端口（Render自动设置）
 
