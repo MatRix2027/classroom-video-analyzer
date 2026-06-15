@@ -8,7 +8,7 @@
 
 ## 技术栈
 
-- Python 3.13 + FastAPI
+- Python 3.12/3.13 + FastAPI
 - React + MUI + Tailwind CSS
 - DeepSeek (文本模型) + 豆包视觉 (视觉模型)
 - 腾讯云 ASR + FFmpeg
