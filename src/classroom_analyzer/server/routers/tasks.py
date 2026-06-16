@@ -204,6 +204,19 @@ async def upload_chunk(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/tasks/{task_id}/retry", response_model=TaskCreated)
+async def retry_task_analysis(
+    task_id: str,
+    level: str = Query(default="QC-v4", description="评价标准，默认QC-v4统一标准"),
+) -> TaskCreated:
+    """重新启动失败任务的分析流程，复用已上传的视频文件。"""
+    try:
+        TaskService.start_analysis(task_id, level=level)
+        return TaskCreated(id=task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── 任务 CRUD（续） ──
 
 

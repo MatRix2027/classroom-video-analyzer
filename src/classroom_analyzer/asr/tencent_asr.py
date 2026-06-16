@@ -77,6 +77,11 @@ class TencentASRClient:
             _os.environ.update(_saved_proxies)
         self._cos_bucket = cos_config.get("bucket", "")
         self._cos_path_prefix = cos_config.get("path_prefix", "asr-upload/")
+        self._cos_upload_part_size_mb = int(cos_config.get("upload_part_size_mb", 8))
+        self._cos_upload_threads = int(cos_config.get("upload_threads", 2))
+        self._cos_upload_max_retries = int(cos_config.get("upload_max_retries", 4))
+        self._cos_upload_retry_base_seconds = float(cos_config.get("upload_retry_base_seconds", 2))
+        self._cos_direct_upload_max_mb = int(cos_config.get("direct_upload_max_mb", 512))
 
         # 初始化ASR客户端（同样绕过系统代理）
         cred = credential.Credential(secret_id, secret_key)
@@ -162,14 +167,52 @@ class TencentASRClient:
         file_ext = Path(local_path).suffix
         object_key = f"{self._cos_path_prefix}{uuid.uuid4().hex}{file_ext}"
 
-        try:
-            self._cos_client.upload_file(
-                Bucket=self._cos_bucket,
-                Key=object_key,
-                LocalFilePath=local_path,
-            )
-        except Exception as e:
-            raise ASRError(f"COS上传失败：{e}")
+        upload_errors: list[str] = []
+        for attempt in range(1, self._cos_upload_max_retries + 1):
+            try:
+                self._cos_client.upload_file(
+                    Bucket=self._cos_bucket,
+                    Key=object_key,
+                    LocalFilePath=local_path,
+                    PartSize=self._cos_upload_part_size_mb,
+                    MAXThread=self._cos_upload_threads,
+                )
+                break
+            except Exception as e:
+                error_text = str(e)
+                upload_errors.append(error_text)
+                logger.warning(
+                    "COS分片上传失败，第 {}/{} 次：{}",
+                    attempt,
+                    self._cos_upload_max_retries,
+                    error_text,
+                )
+                if attempt < self._cos_upload_max_retries:
+                    time.sleep(self._cos_upload_retry_base_seconds * (2 ** (attempt - 1)))
+        else:
+            file_size_mb = Path(local_path).stat().st_size / 1024 / 1024
+            if file_size_mb <= self._cos_direct_upload_max_mb:
+                try:
+                    logger.info("COS分片上传连续失败，尝试单对象直传：{:.1f} MB", file_size_mb)
+                    with open(local_path, "rb") as f:
+                        self._cos_client.put_object(
+                            Bucket=self._cos_bucket,
+                            Key=object_key,
+                            Body=f,
+                        )
+                except Exception as direct_error:
+                    upload_errors.append(str(direct_error))
+                    raise ASRError(
+                        "COS上传失败：音频上传到云存储失败，可能是网络波动、文件较大或COS服务临时异常。"
+                        "系统已多次重试仍未成功，请稍后在任务页点击“重试分析”。"
+                        f" 原始错误：{upload_errors[-1]}"
+                    ) from direct_error
+            else:
+                raise ASRError(
+                    "COS上传失败：音频上传到云存储失败，可能是网络波动、文件较大或COS服务临时异常。"
+                    "系统已多次重试仍未成功，请稍后在任务页点击“重试分析”。"
+                    f" 原始错误：{upload_errors[-1] if upload_errors else 'unknown'}"
+                )
 
         # 生成预签名URL（有效期2小时，给ASR足够时间处理）
         url = self._cos_client.get_presigned_download_url(

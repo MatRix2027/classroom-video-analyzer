@@ -6,7 +6,12 @@
   "cos": {
     "bucket": "your-bucket-name-1234567890",
     "region": "ap-guangzhou",
-    "path_prefix": "asr-upload/"
+    "path_prefix": "asr-upload/",
+    "upload_part_size_mb": 8,
+    "upload_threads": 2,
+    "upload_max_retries": 4,
+    "upload_retry_base_seconds": 2,
+    "direct_upload_max_mb": 512
   },
   "asr": {
     "engine": "16k_zh",

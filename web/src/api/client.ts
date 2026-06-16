@@ -207,6 +207,16 @@ export const getTaskStatus = async (id: string): Promise<TaskStatus> => {
   return response.data;
 };
 
+export const retryTaskAnalysis = async (
+  id: string,
+  level: string = 'QC-v4',
+): Promise<TaskCreated> => {
+  const response = await api.post<TaskCreated>(`/tasks/${id}/retry`, null, {
+    params: { level },
+  });
+  return response.data;
+};
+
 export const getTaskDetail = async (id: string): Promise<TaskDetail> => {
   const response = await api.get<TaskDetail>(`/tasks/${id}`);
   return response.data;

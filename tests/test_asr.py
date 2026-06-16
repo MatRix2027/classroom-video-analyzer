@@ -70,6 +70,101 @@ class TestTencentASRClient:
         finally:
             Path(audio_path).unlink(missing_ok=True)
 
+    @patch("classroom_analyzer.asr.tencent_asr.CosS3Client")
+    @patch("classroom_analyzer.asr.tencent_asr.asr_client.AsrClient")
+    def test_upload_to_cos_retries_transient_failure(self, mock_asr: MagicMock, mock_cos: MagicMock) -> None:
+        client = TencentASRClient(
+            secret_id="test_id",
+            secret_key="test_key",
+            cos_config={
+                "bucket": "test-bucket",
+                "region": "ap-guangzhou",
+                "path_prefix": "asr-upload/",
+                "upload_max_retries": 3,
+                "upload_retry_base_seconds": 0,
+            },
+        )
+
+        mock_cos_instance = mock_cos.return_value
+        mock_cos_instance.upload_file.side_effect = [Exception("part failed"), None]
+
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(b"fake audio")
+            audio_path = f.name
+
+        try:
+            url = client._upload_to_cos(audio_path)
+            assert "test-bucket" in url
+            assert mock_cos_instance.upload_file.call_count == 2
+            mock_cos_instance.put_object.assert_not_called()
+        finally:
+            Path(audio_path).unlink(missing_ok=True)
+
+    @patch("classroom_analyzer.asr.tencent_asr.CosS3Client")
+    @patch("classroom_analyzer.asr.tencent_asr.asr_client.AsrClient")
+    def test_upload_to_cos_falls_back_to_put_object_for_small_file(self, mock_asr: MagicMock, mock_cos: MagicMock) -> None:
+        client = TencentASRClient(
+            secret_id="test_id",
+            secret_key="test_key",
+            cos_config={
+                "bucket": "test-bucket",
+                "region": "ap-guangzhou",
+                "path_prefix": "asr-upload/",
+                "upload_max_retries": 2,
+                "upload_retry_base_seconds": 0,
+                "direct_upload_max_mb": 64,
+            },
+        )
+
+        mock_cos_instance = mock_cos.return_value
+        mock_cos_instance.upload_file.side_effect = Exception("some upload_part fail after max_retry")
+        mock_cos_instance.put_object.return_value = None
+
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(b"fake audio")
+            audio_path = f.name
+
+        try:
+            url = client._upload_to_cos(audio_path)
+            assert "test-bucket" in url
+            assert mock_cos_instance.upload_file.call_count == 2
+            mock_cos_instance.put_object.assert_called_once()
+        finally:
+            Path(audio_path).unlink(missing_ok=True)
+
+    @patch("classroom_analyzer.asr.tencent_asr.CosS3Client")
+    @patch("classroom_analyzer.asr.tencent_asr.asr_client.AsrClient")
+    def test_upload_to_cos_reports_actionable_error_after_retries(self, mock_asr: MagicMock, mock_cos: MagicMock) -> None:
+        client = TencentASRClient(
+            secret_id="test_id",
+            secret_key="test_key",
+            cos_config={
+                "bucket": "test-bucket",
+                "region": "ap-guangzhou",
+                "path_prefix": "asr-upload/",
+                "upload_max_retries": 1,
+                "upload_retry_base_seconds": 0,
+                "direct_upload_max_mb": 64,
+            },
+        )
+
+        mock_cos_instance = mock_cos.return_value
+        mock_cos_instance.upload_file.side_effect = Exception("some upload_part fail after max_retry")
+        mock_cos_instance.put_object.side_effect = Exception("network down")
+
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(b"fake audio")
+            audio_path = f.name
+
+        try:
+            with pytest.raises(ASRError, match="重试分析"):
+                client._upload_to_cos(audio_path)
+        finally:
+            Path(audio_path).unlink(missing_ok=True)
+
     def test_parse_result_with_speakers(self, asr_client: TencentASRClient) -> None:
         raw_result = [
             {"StartTime": 0, "EndTime": 5000, "Text": "同学们好", "Speaker": "teacher"},

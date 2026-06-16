@@ -10,7 +10,7 @@ import SpatialAudioOffIcon from '@mui/icons-material/SpatialAudioOff';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 
 import { ToastContext } from '../App';
-import { getTaskStatus, type TaskStatus, type TaskStatusType } from '../api/client';
+import { getTaskStatus, retryTaskAnalysis, type TaskStatus, type TaskStatusType } from '../api/client';
 import StepProgress from '../components/StepProgress';
 
 const POLL_INTERVAL = 2000;
@@ -82,6 +82,7 @@ const AnalyzingPage: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [currentStage, setCurrentStage] = useState('任务已创建');
   const [error, setError] = useState('');
+  const [retrying, setRetrying] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeStageIndex = stageIndex(currentStage, status);
 
@@ -120,6 +121,25 @@ const AnalyzingPage: React.FC = () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [id, navigate, showToast]);
+
+  const handleRetry = async () => {
+    if (!id) return;
+    setRetrying(true);
+    try {
+      await retryTaskAnalysis(id);
+      setStatus('pending');
+      setProgress(0);
+      setError('');
+      showToast('已重新启动分析，将从已上传的视频继续处理', 'success');
+      window.location.reload();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || '重试分析失败，请稍后再试';
+      setError(msg);
+      showToast('重试分析失败', 'error');
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   return (
     <Box sx={{ maxWidth: 760, mx: 'auto', px: 3, py: 6 }}>
@@ -211,9 +231,14 @@ const AnalyzingPage: React.FC = () => {
           {status === 'failed' && (
             <Box sx={{ mt: 3 }}>
               <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
-              <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => navigate('/')}>
-                重新上传
-              </Button>
+              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                <Button variant="contained" startIcon={<RefreshIcon />} onClick={handleRetry} disabled={retrying}>
+                  {retrying ? '正在重试' : '重试分析'}
+                </Button>
+                <Button variant="outlined" onClick={() => navigate('/')}>
+                  重新上传
+                </Button>
+              </Box>
             </Box>
           )}
         </CardContent>
