@@ -182,6 +182,37 @@ export interface ModelConfig {
   vision_enabled: boolean;
 }
 
+export interface CalibrationFeedbackCreate {
+  feedback_type: string;
+  dimension_name?: string | null;
+  ai_score?: number | null;
+  human_score?: number | null;
+  human_grade?: string | null;
+  time_range?: string | null;
+  issue_summary: string;
+  correction_suggestion?: string | null;
+  evidence_note?: string | null;
+  reviewer?: string | null;
+}
+
+export interface CalibrationFeedback extends CalibrationFeedbackCreate {
+  id: string;
+  task_id: string;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+  filename?: string | null;
+  total_score?: number | null;
+  grade?: string | null;
+}
+
+export interface CalibrationFeedbackListResponse {
+  items: CalibrationFeedback[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export const uploadVideo = async (
   file: File,
   level: string = 'QC-v4',
@@ -245,6 +276,29 @@ export const getStandards = async (): Promise<StandardsResponse> => {
 
 export const getModelConfig = async (): Promise<ModelConfig> => {
   const response = await api.get<ModelConfig>('/config/models');
+  return response.data;
+};
+
+export const submitCalibrationFeedback = async (
+  taskId: string,
+  payload: CalibrationFeedbackCreate,
+): Promise<CalibrationFeedback> => {
+  const response = await api.post<CalibrationFeedback>(`/tasks/${taskId}/feedback`, payload);
+  return response.data;
+};
+
+export const getTaskFeedback = async (taskId: string): Promise<CalibrationFeedback[]> => {
+  const response = await api.get<CalibrationFeedback[]>(`/tasks/${taskId}/feedback`);
+  return response.data;
+};
+
+export const getCalibrationFeedbackList = async (
+  page: number = 1,
+  pageSize: number = 20,
+): Promise<CalibrationFeedbackListResponse> => {
+  const response = await api.get<CalibrationFeedbackListResponse>('/feedback', {
+    params: { page, page_size: pageSize },
+  });
   return response.data;
 };
 

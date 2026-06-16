@@ -7,6 +7,7 @@ import html as html_module
 import json
 import re
 import typing
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,9 @@ from pydantic import BaseModel
 
 from classroom_analyzer.paths import get_project_root
 from classroom_analyzer.server.models import (
+    CalibrationFeedbackCreate,
+    CalibrationFeedbackListResponse,
+    CalibrationFeedbackResponse,
     HealthResponse,
     EvidenceResponse,
     EvidenceStatus,
@@ -27,6 +31,7 @@ from classroom_analyzer.server.models import (
     TaskStatusResponse,
     TeachingEventSchema,
 )
+from classroom_analyzer.server import database as db
 from classroom_analyzer.server.services import TaskService
 
 router = APIRouter(prefix="/api", tags=["tasks"])
@@ -215,6 +220,58 @@ async def retry_task_analysis(
         return TaskCreated(id=task_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/tasks/{task_id}/feedback", response_model=CalibrationFeedbackResponse)
+async def create_task_feedback(
+    task_id: str,
+    feedback: CalibrationFeedbackCreate,
+) -> CalibrationFeedbackResponse:
+    """提交人工校对反馈，作为后续评分逻辑优化案例。"""
+    task = TaskService.get_task_detail(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    record = db.create_calibration_feedback(
+        {
+            **feedback.model_dump(),
+            "id": uuid.uuid4().hex,
+            "task_id": task_id,
+            "status": "new",
+        }
+    )
+    return CalibrationFeedbackResponse(**record)
+
+
+@router.get("/tasks/{task_id}/feedback", response_model=list[CalibrationFeedbackResponse])
+async def get_task_feedback(task_id: str) -> list[CalibrationFeedbackResponse]:
+    """获取某个任务的人工校对记录。"""
+    task = TaskService.get_task_detail(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return [CalibrationFeedbackResponse(**item) for item in db.get_task_feedback(task_id)]
+
+
+@router.get("/feedback", response_model=CalibrationFeedbackListResponse)
+async def list_feedback(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status: str = Query(default=""),
+    feedback_type: str = Query(default=""),
+) -> CalibrationFeedbackListResponse:
+    """获取人工校对反馈池。"""
+    items, total = db.list_calibration_feedback(
+        page=page,
+        page_size=page_size,
+        status=status,
+        feedback_type=feedback_type,
+    )
+    return CalibrationFeedbackListResponse(
+        items=[CalibrationFeedbackResponse(**item) for item in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 # ── 任务 CRUD（续） ──

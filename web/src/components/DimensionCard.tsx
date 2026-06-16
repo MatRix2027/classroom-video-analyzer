@@ -30,12 +30,14 @@ interface DimensionCardProps {
   dimension: ScoreDimension;
   onSeekTo?: (seconds: number) => void;
   defaultExpanded?: boolean;
+  onFeedback?: (dimension: ScoreDimension) => void;
 }
 
 const DimensionCard: React.FC<DimensionCardProps> = ({
   dimension,
   onSeekTo,
   defaultExpanded = false,
+  onFeedback,
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const percentage = dimension.max_score > 0 ? (dimension.score / dimension.max_score) * 100 : 0;
@@ -111,17 +113,10 @@ const DimensionCard: React.FC<DimensionCardProps> = ({
                 startIcon={<FeedbackIcon />}
                 onClick={(event) => {
                   event.stopPropagation();
-                  const feedback = {
-                    dimension: dimension.name,
-                    aiScore: dimension.score,
-                    timestamp: new Date().toISOString(),
-                  };
-                  const existing = JSON.parse(localStorage.getItem('dimension_feedback') || '[]');
-                  existing.push(feedback);
-                  localStorage.setItem('dimension_feedback', JSON.stringify(existing));
+                  onFeedback?.(dimension);
                 }}
               >
-                标记待复核
+                人工校对
               </Button>
             </Box>
           </Box>

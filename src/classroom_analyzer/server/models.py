@@ -136,6 +136,53 @@ class EvidenceResponse(BaseModel):
     keyframes: list[KeyframeSchema] = Field(default_factory=list)
 
 
+class CalibrationFeedbackCreate(BaseModel):
+    """人工校对反馈提交。"""
+
+    feedback_type: str = Field(default="dimension_score", description="反馈类型")
+    dimension_name: Optional[str] = Field(default=None, description="关联评分维度")
+    ai_score: Optional[float] = Field(default=None, description="工具原评分")
+    human_score: Optional[float] = Field(default=None, description="人工建议评分")
+    human_grade: Optional[str] = Field(default=None, description="人工建议等级")
+    time_range: Optional[str] = Field(default=None, description="相关时间点或时间段")
+    issue_summary: str = Field(..., min_length=1, description="差异说明")
+    correction_suggestion: Optional[str] = Field(default=None, description="建议调整")
+    evidence_note: Optional[str] = Field(default=None, description="证据说明")
+    reviewer: Optional[str] = Field(default=None, description="校对人")
+
+
+class CalibrationFeedbackResponse(BaseModel):
+    """人工校对反馈记录。"""
+
+    id: str
+    task_id: str
+    feedback_type: str
+    dimension_name: Optional[str] = None
+    ai_score: Optional[float] = None
+    human_score: Optional[float] = None
+    human_grade: Optional[str] = None
+    time_range: Optional[str] = None
+    issue_summary: str
+    correction_suggestion: Optional[str] = None
+    evidence_note: Optional[str] = None
+    reviewer: Optional[str] = None
+    status: str = "new"
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    filename: Optional[str] = None
+    total_score: Optional[float] = None
+    grade: Optional[str] = None
+
+
+class CalibrationFeedbackListResponse(BaseModel):
+    """人工校对反馈列表。"""
+
+    items: list[CalibrationFeedbackResponse] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+
+
 class TaskDetailResponse(BaseModel):
     """任务详情响应."""
 

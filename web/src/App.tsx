@@ -14,11 +14,13 @@ import {
 } from '@mui/material';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import HistoryIcon from '@mui/icons-material/History';
 import RuleIcon from '@mui/icons-material/Rule';
 
 import AnalyzingPage from './pages/AnalyzingPage';
 import DashboardPage from './pages/DashboardPage';
+import FeedbackPage from './pages/FeedbackPage';
 import HistoryPage from './pages/HistoryPage';
 import ReportPage from './pages/ReportPage';
 import StandardsPage from './pages/StandardsPage';
@@ -91,6 +93,7 @@ function App() {
   const navItems = [
     { to: '/', label: '新建分析', icon: <CloudUploadIcon /> },
     { to: '/history', label: '分析记录', icon: <HistoryIcon /> },
+    { to: '/feedback', label: '校对记录', icon: <FactCheckIcon /> },
     { to: '/standards', label: '评价标准', icon: <RuleIcon /> },
   ];
 
@@ -141,6 +144,7 @@ function App() {
             <Route path="/tasks/:id/dashboard" element={<DashboardPage />} />
             <Route path="/tasks/:id/report" element={<ReportPage />} />
             <Route path="/history" element={<HistoryPage />} />
+            <Route path="/feedback" element={<FeedbackPage />} />
             <Route path="/standards" element={<StandardsPage />} />
           </Routes>
         </Box>

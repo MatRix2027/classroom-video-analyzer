@@ -12,9 +12,18 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DownloadIcon from '@mui/icons-material/Download';
+import RateReviewIcon from '@mui/icons-material/RateReview';
 
 import { ToastContext } from '../App';
-import { getReportUrl, getTaskDetail, getVideoUrl, type TaskDetail } from '../api/client';
+import {
+  getReportUrl,
+  getTaskDetail,
+  getVideoUrl,
+  submitCalibrationFeedback,
+  type ScoreDimension,
+  type TaskDetail,
+} from '../api/client';
+import CalibrationFeedbackDialog from '../components/CalibrationFeedbackDialog';
 import DimensionCard from '../components/DimensionCard';
 import VideoPlayer, { type VideoPlayerHandle } from '../components/VideoPlayer';
 
@@ -25,6 +34,8 @@ const ReportPage: React.FC = () => {
   const playerRef = useRef<VideoPlayerHandle>(null);
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackDimension, setFeedbackDimension] = useState<ScoreDimension | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -48,6 +59,10 @@ const ReportPage: React.FC = () => {
   }
 
   const scoreCard = task.scoring_data;
+  const openFeedback = (dimension?: ScoreDimension) => {
+    setFeedbackDimension(dimension || null);
+    setFeedbackOpen(true);
+  };
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', px: 3, py: 4 }}>
@@ -58,9 +73,14 @@ const ReportPage: React.FC = () => {
           </Button>
           <Typography variant="h4">质量分析报告</Typography>
         </Box>
-        <Button variant="contained" startIcon={<DownloadIcon />} href={getReportUrl(id!)} target="_blank">
-          导出报告
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="outlined" startIcon={<RateReviewIcon />} onClick={() => openFeedback()}>
+            人工校对
+          </Button>
+          <Button variant="contained" startIcon={<DownloadIcon />} href={getReportUrl(id!)} target="_blank">
+            导出报告
+          </Button>
+        </Box>
       </Box>
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '380px 1fr' }, gap: 3 }}>
@@ -109,11 +129,22 @@ const ReportPage: React.FC = () => {
               key={dimension.name}
               dimension={dimension}
               onSeekTo={(seconds) => playerRef.current?.seekTo(seconds)}
+              onFeedback={openFeedback}
               defaultExpanded
             />
           ))}
         </Box>
       </Box>
+      <CalibrationFeedbackDialog
+        open={feedbackOpen}
+        task={task}
+        dimension={feedbackDimension}
+        onClose={() => setFeedbackOpen(false)}
+        onSubmit={async (payload) => {
+          await submitCalibrationFeedback(task.id, payload);
+          showToast('人工校对已提交，已进入优化案例库', 'success');
+        }}
+      />
     </Box>
   );
 };

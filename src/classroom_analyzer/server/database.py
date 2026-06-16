@@ -37,6 +37,26 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 """
 
+_CREATE_FEEDBACK_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS calibration_feedback (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    feedback_type TEXT NOT NULL,
+    dimension_name TEXT,
+    ai_score REAL,
+    human_score REAL,
+    human_grade TEXT,
+    time_range TEXT,
+    issue_summary TEXT NOT NULL,
+    correction_suggestion TEXT,
+    evidence_note TEXT,
+    reviewer TEXT,
+    status TEXT NOT NULL DEFAULT 'new',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 
 def _get_conn() -> sqlite3.Connection:
     """获取数据库连接，确保 data 目录存在。"""
@@ -53,6 +73,7 @@ def init_db() -> None:
         conn = _get_conn()
         try:
             conn.execute(_CREATE_TABLE_SQL)
+            conn.execute(_CREATE_FEEDBACK_TABLE_SQL)
             conn.commit()
             logger.info(f"数据库初始化完成：{DB_PATH}")
         finally:
@@ -192,6 +213,101 @@ def search_tasks(keyword: str, page: int = 1, page_size: int = 10) -> tuple[list
                 "SELECT id, filename, status, total_score, grade, created_at "
                 "FROM tasks WHERE filename LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
                 (like_pattern, page_size, offset),
+            ).fetchall()
+            return [dict(row) for row in rows], total
+        finally:
+            conn.close()
+
+
+def create_calibration_feedback(feedback: dict[str, Any]) -> dict[str, Any]:
+    """保存人工校对反馈。"""
+    with _db_lock:
+        conn = _get_conn()
+        try:
+            conn.execute(
+                """
+                INSERT INTO calibration_feedback (
+                    id, task_id, feedback_type, dimension_name, ai_score, human_score,
+                    human_grade, time_range, issue_summary, correction_suggestion,
+                    evidence_note, reviewer, status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    feedback["id"],
+                    feedback["task_id"],
+                    feedback["feedback_type"],
+                    feedback.get("dimension_name"),
+                    feedback.get("ai_score"),
+                    feedback.get("human_score"),
+                    feedback.get("human_grade"),
+                    feedback.get("time_range"),
+                    feedback["issue_summary"],
+                    feedback.get("correction_suggestion"),
+                    feedback.get("evidence_note"),
+                    feedback.get("reviewer"),
+                    feedback.get("status", "new"),
+                ),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM calibration_feedback WHERE id=?",
+                (feedback["id"],),
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
+
+
+def get_task_feedback(task_id: str) -> list[dict[str, Any]]:
+    """获取某个任务下的人工校对反馈。"""
+    with _db_lock:
+        conn = _get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM calibration_feedback WHERE task_id=? ORDER BY created_at DESC",
+                (task_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+
+def list_calibration_feedback(
+    page: int = 1,
+    page_size: int = 20,
+    status: str = "",
+    feedback_type: str = "",
+) -> tuple[list[dict[str, Any]], int]:
+    """分页获取人工校对反馈池。"""
+    offset = (page - 1) * page_size
+    where: list[str] = []
+    params: list[Any] = []
+    if status:
+        where.append("f.status=?")
+        params.append(status)
+    if feedback_type:
+        where.append("f.feedback_type=?")
+        params.append(feedback_type)
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+
+    with _db_lock:
+        conn = _get_conn()
+        try:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM calibration_feedback f {where_sql}",
+                params,
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"""
+                SELECT f.*, t.filename, t.total_score, t.grade
+                FROM calibration_feedback f
+                LEFT JOIN tasks t ON t.id = f.task_id
+                {where_sql}
+                ORDER BY f.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                [*params, page_size, offset],
             ).fetchall()
             return [dict(row) for row in rows], total
         finally:

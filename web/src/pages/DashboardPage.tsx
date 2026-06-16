@@ -16,6 +16,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import DownloadIcon from '@mui/icons-material/Download';
 import ImageSearchIcon from '@mui/icons-material/ImageSearch';
 import PlaylistPlayIcon from '@mui/icons-material/PlaylistPlay';
+import RateReviewIcon from '@mui/icons-material/RateReview';
 import RuleIcon from '@mui/icons-material/Rule';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
@@ -25,10 +26,13 @@ import {
   getTaskDetail,
   getTaskEvidence,
   getVideoUrl,
+  submitCalibrationFeedback,
   type EvidenceResponse,
+  type ScoreDimension,
   type ScoreCard,
   type TaskDetail,
 } from '../api/client';
+import CalibrationFeedbackDialog from '../components/CalibrationFeedbackDialog';
 import DimensionCard from '../components/DimensionCard';
 import ScoreCardDisplay from '../components/ScoreCard';
 import ScoreRadarChart from '../components/RadarChart';
@@ -83,6 +87,8 @@ const DashboardPage: React.FC = () => {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [evidence, setEvidence] = useState<EvidenceResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackDimension, setFeedbackDimension] = useState<ScoreDimension | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -120,6 +126,11 @@ const DashboardPage: React.FC = () => {
     );
   }
 
+  const openFeedback = (dimension?: ScoreDimension) => {
+    setFeedbackDimension(dimension || null);
+    setFeedbackOpen(true);
+  };
+
   return (
     <Box sx={{ maxWidth: 1280, mx: 'auto', px: 3, py: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'flex-start', mb: 3 }}>
@@ -130,6 +141,9 @@ const DashboardPage: React.FC = () => {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="outlined" startIcon={<RateReviewIcon />} onClick={() => openFeedback()}>
+            人工校对
+          </Button>
           <Button variant="outlined" startIcon={<DescriptionIcon />} onClick={() => navigate(`/tasks/${id}/report`)}>
             详细报告
           </Button>
@@ -324,11 +338,22 @@ const DashboardPage: React.FC = () => {
                 key={dimension.name}
                 dimension={dimension}
                 onSeekTo={(seconds) => playerRef.current?.seekTo(seconds)}
+                onFeedback={openFeedback}
               />
             ))}
           </Box>
         </Box>
       </Box>
+      <CalibrationFeedbackDialog
+        open={feedbackOpen}
+        task={task}
+        dimension={feedbackDimension}
+        onClose={() => setFeedbackOpen(false)}
+        onSubmit={async (payload) => {
+          await submitCalibrationFeedback(task.id, payload);
+          showToast('人工校对已提交，已进入优化案例库', 'success');
+        }}
+      />
     </Box>
   );
 };
