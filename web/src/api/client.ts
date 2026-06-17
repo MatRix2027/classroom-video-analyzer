@@ -132,6 +132,8 @@ export interface TaskMetadata {
   teacher_name?: string;
   course_name?: string;
   grade_level?: string;
+  system_name?: string;
+  class_type?: string;
   lesson_type?: string;
   video_scope?: string;
   analysis_mode?: string;

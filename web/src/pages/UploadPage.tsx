@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -11,7 +11,6 @@ import {
   LinearProgress,
   MenuItem,
   Select,
-  TextField,
   Typography,
 } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -30,11 +29,18 @@ const MAX_SIZE = 2 * 1024 * 1024 * 1024;
 
 const LEVEL_OPTIONS = [
   { value: 'QC-v4', label: '统一质检标准 QC-v4' },
-  { value: 'L1_L3', label: 'L1-L3 学前班型' },
-  { value: 'L4_L6', label: 'L4-L6 小低班型' },
-  { value: 'L7_L9', label: 'L7-L9 小高班型' },
   { value: 'QA-v3', label: '通用巡检 QA-v3' },
 ];
+
+const SYSTEMS = [
+  { value: '启蒙体系', levels: ['K1', 'K2', 'K3'] },
+  { value: '素养体系', levels: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] },
+  { value: '创新体系', levels: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] },
+];
+
+const CLASS_TYPES = ['A+', 'S', 'S+'];
+const LESSON_TYPES = ['新授课', '练习课', '复习课', '试听课', '公开课', '其他'];
+const VIDEO_SCOPES = ['完整课堂', '课堂片段', '问题片段', '优秀片段'];
 
 const SCENARIOS = [
   {
@@ -81,13 +87,43 @@ const ANALYSIS_MODES = [
   },
 ];
 
-const LESSON_TYPES = ['新授课', '练习课', '复习课', '试听课', '公开课', '其他'];
-const VIDEO_SCOPES = ['完整课堂', '课堂片段', '问题片段', '优秀片段'];
-
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+function inferMetadata(filename: string): Partial<TaskMetadata> {
+  const name = filename.replace(/\.[^.]+$/, '');
+  const upper = name.toUpperCase();
+  const metadata: Partial<TaskMetadata> = {};
+
+  const levelMatch = upper.match(/\b(K[1-3]|P[1-6]|L[1-9])\b/);
+  if (levelMatch) {
+    const rawLevel = levelMatch[1];
+    if (rawLevel.startsWith('L')) {
+      const number = Number(rawLevel.slice(1));
+      metadata.grade_level = number <= 3 ? `K${number}` : `P${number - 3}`;
+    } else {
+      metadata.grade_level = rawLevel;
+    }
+  }
+
+  if (metadata.grade_level?.startsWith('K')) metadata.system_name = '启蒙体系';
+  if (name.includes('素养')) metadata.system_name = '素养体系';
+  if (name.includes('创新')) metadata.system_name = '创新体系';
+
+  if (upper.includes('S+') || name.includes('S加') || name.includes('S＋')) metadata.class_type = 'S+';
+  else if (upper.includes('A+') || name.includes('A加') || name.includes('A＋')) metadata.class_type = 'A+';
+  else if (/(^|[^A-Z])S([^A-Z]|$)/.test(upper) || name.includes('S班')) metadata.class_type = 'S';
+
+  const lessonType = LESSON_TYPES.find((item) => name.includes(item.replace('课', '')) || name.includes(item));
+  if (lessonType) metadata.lesson_type = lessonType;
+
+  const teacherMatch = name.match(/([\u4e00-\u9fa5]{2,4})(老师|教师)/);
+  if (teacherMatch) metadata.teacher_name = teacherMatch[1];
+
+  return metadata;
 }
 
 const UploadPage: React.FC = () => {
@@ -99,12 +135,11 @@ const UploadPage: React.FC = () => {
   const [scenario, setScenario] = useState('quality');
   const [analysisMode, setAnalysisMode] = useState('standard');
   const [taskInfo, setTaskInfo] = useState<TaskMetadata>({
-    teacher_name: '',
-    course_name: '',
+    system_name: '',
     grade_level: '',
-    lesson_type: '新授课',
+    class_type: '',
+    lesson_type: '',
     video_scope: '完整课堂',
-    analysis_purpose: '课堂质检',
   });
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -116,6 +151,24 @@ const UploadPage: React.FC = () => {
   useEffect(() => {
     getModelConfig().then(setModelConfig).catch(() => setModelConfig(null));
   }, []);
+
+  const selectedSystem = SYSTEMS.find((item) => item.value === taskInfo.system_name);
+  const selectedMode = ANALYSIS_MODES.find((item) => item.id === analysisMode) || ANALYSIS_MODES[1];
+  const selectedScenario = SCENARIOS.find((item) => item.id === scenario) || SCENARIOS[0];
+
+  const inferredTags = useMemo(() => {
+    const tags = [];
+    if (taskInfo.system_name) tags.push(taskInfo.system_name);
+    if (taskInfo.grade_level) tags.push(taskInfo.grade_level);
+    if (taskInfo.class_type) tags.push(`${taskInfo.class_type}班`);
+    if (taskInfo.lesson_type) tags.push(taskInfo.lesson_type);
+    if (taskInfo.teacher_name) tags.push(`${taskInfo.teacher_name}老师`);
+    return tags;
+  }, [taskInfo]);
+
+  const updateTaskInfo = (key: keyof TaskMetadata, value: string) => {
+    setTaskInfo((prev) => ({ ...prev, [key]: value }));
+  };
 
   const validateFile = useCallback((candidate: File): string | null => {
     const ext = candidate.name.split('.').pop()?.toLowerCase() || '';
@@ -135,7 +188,12 @@ const UploadPage: React.FC = () => {
       showToast(msg, 'error');
       return;
     }
+    const inferred = inferMetadata(candidate.name);
     setFile(candidate);
+    setTaskInfo((prev) => ({
+      ...prev,
+      ...Object.fromEntries(Object.entries(inferred).filter(([, value]) => Boolean(value))),
+    }));
     setError('');
   }, [showToast, validateFile]);
 
@@ -170,6 +228,7 @@ const UploadPage: React.FC = () => {
           ...taskInfo,
           analysis_mode: analysisMode,
           analysis_purpose: scenario,
+          course_name: taskInfo.course_name || file.name.replace(/\.[^.]+$/, ''),
         },
       );
       showToast('任务已创建，正在进入分析流程。', 'success');
@@ -182,11 +241,6 @@ const UploadPage: React.FC = () => {
       setUploading(false);
     }
   }, [analysisMode, file, level, navigate, scenario, showToast, taskInfo]);
-
-  const selectedMode = ANALYSIS_MODES.find((item) => item.id === analysisMode) || ANALYSIS_MODES[1];
-  const updateTaskInfo = (key: keyof TaskMetadata, value: string) => {
-    setTaskInfo((prev) => ({ ...prev, [key]: value }));
-  };
 
   return (
     <Box sx={{ maxWidth: 1180, mx: 'auto', px: 3, py: 4 }}>
@@ -240,49 +294,56 @@ const UploadPage: React.FC = () => {
 
           <Card sx={{ mb: 2 }}>
             <CardContent>
-              <Typography variant="h6" sx={{ mb: 1.5 }}>任务信息</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-                <TextField
-                  size="small"
-                  label="教师姓名"
-                  value={taskInfo.teacher_name || ''}
-                  onChange={(event) => updateTaskInfo('teacher_name', event.target.value)}
-                />
-                <TextField
-                  size="small"
-                  label="课程名称"
-                  value={taskInfo.course_name || ''}
-                  onChange={(event) => updateTaskInfo('course_name', event.target.value)}
-                />
-                <TextField
-                  size="small"
-                  label="年级/班型"
-                  value={taskInfo.grade_level || ''}
-                  onChange={(event) => updateTaskInfo('grade_level', event.target.value)}
-                />
-                <FormControl fullWidth size="small">
-                  <Select
-                    value={taskInfo.lesson_type || '新授课'}
-                    onChange={(event) => updateTaskInfo('lesson_type', event.target.value)}
-                  >
-                    {LESSON_TYPES.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}
-                  </Select>
-                </FormControl>
-                <FormControl fullWidth size="small">
-                  <Select
-                    value={taskInfo.video_scope || '完整课堂'}
-                    onChange={(event) => updateTaskInfo('video_scope', event.target.value)}
-                  >
-                    {VIDEO_SCOPES.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}
-                  </Select>
-                </FormControl>
-                <TextField
-                  size="small"
-                  label="分析用途"
-                  value={taskInfo.analysis_purpose || ''}
-                  onChange={(event) => updateTaskInfo('analysis_purpose', event.target.value)}
-                />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'flex-start', mb: 1.5 }}>
+                <Box>
+                  <Typography variant="h6">自动识别与标签确认</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    系统会优先从文件名识别体系、级别、班型；识别不准时再点标签修正，不需要填写完整信息。
+                  </Typography>
+                </Box>
+                <Chip size="small" label={inferredTags.length > 0 ? '已识别' : '待识别'} color={inferredTags.length > 0 ? 'success' : 'default'} />
               </Box>
+
+              <TagSection
+                title="体系"
+                options={SYSTEMS.map((item) => item.value)}
+                value={taskInfo.system_name || ''}
+                onChange={(value) => {
+                  updateTaskInfo('system_name', value);
+                  updateTaskInfo('grade_level', '');
+                }}
+              />
+
+              {selectedSystem && (
+                <TagSection
+                  title="级别"
+                  options={selectedSystem.levels}
+                  value={taskInfo.grade_level || ''}
+                  onChange={(value) => updateTaskInfo('grade_level', value)}
+                />
+              )}
+
+              <TagSection
+                title="班型"
+                options={CLASS_TYPES}
+                value={taskInfo.class_type || ''}
+                onChange={(value) => updateTaskInfo('class_type', value)}
+                suffix="班"
+              />
+
+              <TagSection
+                title="课型"
+                options={LESSON_TYPES}
+                value={taskInfo.lesson_type || ''}
+                onChange={(value) => updateTaskInfo('lesson_type', value)}
+              />
+
+              <TagSection
+                title="视频范围"
+                options={VIDEO_SCOPES}
+                value={taskInfo.video_scope || ''}
+                onChange={(value) => updateTaskInfo('video_scope', value)}
+              />
             </CardContent>
           </Card>
 
@@ -366,22 +427,14 @@ const UploadPage: React.FC = () => {
                 <Typography variant="h6">运行能力</Typography>
               </Box>
               <Box sx={{ display: 'grid', gap: 1 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="body2" color="text.secondary">Web 访问</Typography>
-                  <Chip size="small" color="success" label="开箱可用" />
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="body2" color="text.secondary">关键帧提取</Typography>
-                  <Chip size="small" color="success" label="默认启用" />
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="body2" color="text.secondary">视觉评分</Typography>
-                  <Chip
-                    size="small"
-                    color={modelConfig?.vision_enabled ? 'success' : 'warning'}
-                    label={modelConfig?.vision_enabled ? modelConfig.vision_model : '未配置时需复核'}
-                  />
-                </Box>
+                <CapabilityRow label="Web 访问" value="开箱可用" color="success" />
+                <CapabilityRow label="关键帧提取" value="默认启用" color="success" />
+                <CapabilityRow
+                  label="视觉评分"
+                  value={modelConfig?.vision_enabled ? modelConfig.vision_model : '未配置时需复核'}
+                  color={modelConfig?.vision_enabled ? 'success' : 'warning'}
+                />
+                <CapabilityRow label="人工校对" value="支持任务绑定" color="success" />
               </Box>
               {!modelConfig?.vision_enabled && (
                 <Alert severity="warning" sx={{ mt: 2 }}>
@@ -434,9 +487,9 @@ const UploadPage: React.FC = () => {
             <CardContent>
               <Typography variant="h6" sx={{ mb: 1.5 }}>输出结构</Typography>
               <Alert severity="info" sx={{ mb: 1.5 }}>
-                当前模式：{selectedMode.title}，预计耗时 {selectedMode.eta}。分析会在后台运行，可以稍后从分析记录回看结果。
+                当前目标：{selectedScenario.title}；当前模式：{selectedMode.title}，预计耗时 {selectedMode.eta}。分析会在后台运行，可以稍后从分析记录回看结果。
               </Alert>
-              {['总分与等级', '红线风险', '维度评分', '证据片段', '改进建议'].map((item) => (
+              {['总分与等级', '红线风险', '维度评分', '证据片段', '改进建议', '人工校对'].map((item) => (
                 <Chip key={item} label={item} sx={{ mr: 1, mb: 1 }} variant="outlined" />
               ))}
             </CardContent>
@@ -446,5 +499,40 @@ const UploadPage: React.FC = () => {
     </Box>
   );
 };
+
+const TagSection: React.FC<{
+  title: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+  suffix?: string;
+}> = ({ title, options, value, onChange, suffix = '' }) => (
+  <Box sx={{ mb: 1.5 }}>
+    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+      {title}
+    </Typography>
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+      {options.map((option) => {
+        const active = value === option;
+        return (
+          <Chip
+            key={option}
+            label={`${option}${suffix}`}
+            color={active ? 'primary' : 'default'}
+            variant={active ? 'filled' : 'outlined'}
+            onClick={() => onChange(active ? '' : option)}
+          />
+        );
+      })}
+    </Box>
+  </Box>
+);
+
+const CapabilityRow: React.FC<{ label: string; value: string; color: 'success' | 'warning' }> = ({ label, value, color }) => (
+  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+    <Typography variant="body2" color="text.secondary">{label}</Typography>
+    <Chip size="small" color={color} label={value} />
+  </Box>
+);
 
 export default UploadPage;
