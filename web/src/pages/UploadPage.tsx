@@ -11,6 +11,7 @@ import {
   LinearProgress,
   MenuItem,
   Select,
+  TextField,
   Typography,
 } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -22,7 +23,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import WorkspacePremiumIcon from '@mui/icons-material/WorkspacePremium';
 
 import { ToastContext } from '../App';
-import { getModelConfig, uploadVideoChunked, type ModelConfig } from '../api/client';
+import { getModelConfig, uploadVideoChunked, type ModelConfig, type TaskMetadata } from '../api/client';
 
 const ALLOWED_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'flv', 'avi'];
 const MAX_SIZE = 2 * 1024 * 1024 * 1024;
@@ -59,6 +60,30 @@ const SCENARIOS = [
   },
 ];
 
+const ANALYSIS_MODES = [
+  {
+    id: 'quick',
+    title: '快速初评',
+    eta: '约 10-25 分钟',
+    summary: '优先完成转写、文本评分和基础建议，适合先判断大方向。',
+  },
+  {
+    id: 'standard',
+    title: '标准质检',
+    eta: '约 25-60 分钟',
+    summary: '完整输出转写、事件、关键帧、视觉证据、维度评分和改进建议。',
+  },
+  {
+    id: 'deep',
+    title: '深度复盘',
+    eta: '约 45-90 分钟',
+    summary: '更强调证据覆盖、复盘说明和人工校对，适合正式教研沉淀。',
+  },
+];
+
+const LESSON_TYPES = ['新授课', '练习课', '复习课', '试听课', '公开课', '其他'];
+const VIDEO_SCOPES = ['完整课堂', '课堂片段', '问题片段', '优秀片段'];
+
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -72,6 +97,15 @@ const UploadPage: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [level, setLevel] = useState('QC-v4');
   const [scenario, setScenario] = useState('quality');
+  const [analysisMode, setAnalysisMode] = useState('standard');
+  const [taskInfo, setTaskInfo] = useState<TaskMetadata>({
+    teacher_name: '',
+    course_name: '',
+    grade_level: '',
+    lesson_type: '新授课',
+    video_scope: '完整课堂',
+    analysis_purpose: '课堂质检',
+  });
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -125,10 +159,19 @@ const UploadPage: React.FC = () => {
     setError('');
 
     try {
-      const result = await uploadVideoChunked(file, level, (pct, msg) => {
-        setUploadProgress(pct);
-        if (msg) setUploadStatus(msg);
-      });
+      const result = await uploadVideoChunked(
+        file,
+        level,
+        (pct, msg) => {
+          setUploadProgress(pct);
+          if (msg) setUploadStatus(msg);
+        },
+        {
+          ...taskInfo,
+          analysis_mode: analysisMode,
+          analysis_purpose: scenario,
+        },
+      );
       showToast('任务已创建，正在进入分析流程。', 'success');
       navigate(`/tasks/${result.id}/analyzing`);
     } catch (err: any) {
@@ -138,7 +181,12 @@ const UploadPage: React.FC = () => {
     } finally {
       setUploading(false);
     }
-  }, [file, level, navigate, showToast]);
+  }, [analysisMode, file, level, navigate, scenario, showToast, taskInfo]);
+
+  const selectedMode = ANALYSIS_MODES.find((item) => item.id === analysisMode) || ANALYSIS_MODES[1];
+  const updateTaskInfo = (key: keyof TaskMetadata, value: string) => {
+    setTaskInfo((prev) => ({ ...prev, [key]: value }));
+  };
 
   return (
     <Box sx={{ maxWidth: 1180, mx: 'auto', px: 3, py: 4 }}>
@@ -190,32 +238,113 @@ const UploadPage: React.FC = () => {
 
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-          <Card>
-            <CardContent sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr auto' }, gap: 2, alignItems: 'center' }}>
-              <Box>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.75 }}>
-                  评价标准
-                </Typography>
+          <Card sx={{ mb: 2 }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 1.5 }}>任务信息</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+                <TextField
+                  size="small"
+                  label="教师姓名"
+                  value={taskInfo.teacher_name || ''}
+                  onChange={(event) => updateTaskInfo('teacher_name', event.target.value)}
+                />
+                <TextField
+                  size="small"
+                  label="课程名称"
+                  value={taskInfo.course_name || ''}
+                  onChange={(event) => updateTaskInfo('course_name', event.target.value)}
+                />
+                <TextField
+                  size="small"
+                  label="年级/班型"
+                  value={taskInfo.grade_level || ''}
+                  onChange={(event) => updateTaskInfo('grade_level', event.target.value)}
+                />
                 <FormControl fullWidth size="small">
-                  <Select value={level} onChange={(e) => setLevel(e.target.value)}>
-                    {LEVEL_OPTIONS.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
+                  <Select
+                    value={taskInfo.lesson_type || '新授课'}
+                    onChange={(event) => updateTaskInfo('lesson_type', event.target.value)}
+                  >
+                    {LESSON_TYPES.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}
                   </Select>
                 </FormControl>
+                <FormControl fullWidth size="small">
+                  <Select
+                    value={taskInfo.video_scope || '完整课堂'}
+                    onChange={(event) => updateTaskInfo('video_scope', event.target.value)}
+                  >
+                    {VIDEO_SCOPES.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                <TextField
+                  size="small"
+                  label="分析用途"
+                  value={taskInfo.analysis_purpose || ''}
+                  onChange={(event) => updateTaskInfo('analysis_purpose', event.target.value)}
+                />
               </Box>
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={<PlayArrowIcon />}
-                disabled={!file || uploading}
-                onClick={startAnalysis}
-                sx={{ minWidth: 150, height: 42 }}
-              >
-                开始分析
-              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent sx={{ display: 'grid', gap: 2 }}>
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.75 }}>
+                  分析模式
+                </Typography>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 1 }}>
+                  {ANALYSIS_MODES.map((mode) => {
+                    const active = analysisMode === mode.id;
+                    return (
+                      <Box
+                        key={mode.id}
+                        onClick={() => setAnalysisMode(mode.id)}
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 1,
+                          border: '1px solid',
+                          borderColor: active ? 'primary.main' : '#e5e7eb',
+                          bgcolor: active ? '#f0fdf4' : '#ffffff',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{mode.title}</Typography>
+                        <Typography variant="caption" color="text.secondary">{mode.eta}</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, lineHeight: 1.5 }}>
+                          {mode.summary}
+                        </Typography>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              </Box>
+
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr auto' }, gap: 2, alignItems: 'center' }}>
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.75 }}>
+                    评价标准
+                  </Typography>
+                  <FormControl fullWidth size="small">
+                    <Select value={level} onChange={(e) => setLevel(e.target.value)}>
+                      {LEVEL_OPTIONS.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<PlayArrowIcon />}
+                  disabled={!file || uploading}
+                  onClick={startAnalysis}
+                  sx={{ minWidth: 150, height: 42 }}
+                >
+                  开始分析
+                </Button>
+              </Box>
             </CardContent>
           </Card>
 
@@ -304,6 +433,9 @@ const UploadPage: React.FC = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 1.5 }}>输出结构</Typography>
+              <Alert severity="info" sx={{ mb: 1.5 }}>
+                当前模式：{selectedMode.title}，预计耗时 {selectedMode.eta}。分析会在后台运行，可以稍后从分析记录回看结果。
+              </Alert>
               {['总分与等级', '红线风险', '维度评分', '证据片段', '改进建议'].map((item) => (
                 <Chip key={item} label={item} sx={{ mr: 1, mb: 1 }} variant="outlined" />
               ))}

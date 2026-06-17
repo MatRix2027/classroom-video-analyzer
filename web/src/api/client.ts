@@ -123,8 +123,19 @@ export interface TaskDetail {
   grade: string | null;
   scoring_data: ScoreCard | null;
   evidence_status?: EvidenceStatus | null;
+  metadata?: TaskMetadata;
   created_at: string | null;
   completed_at: string | null;
+}
+
+export interface TaskMetadata {
+  teacher_name?: string;
+  course_name?: string;
+  grade_level?: string;
+  lesson_type?: string;
+  video_scope?: string;
+  analysis_mode?: string;
+  analysis_purpose?: string;
 }
 
 export interface TaskListItem {
@@ -355,10 +366,11 @@ export const uploadChunk = async (
 export const completeChunkedUpload = async (
   uploadId: string,
   level: string,
+  metadata: TaskMetadata = {},
 ): Promise<TaskCreated> => {
   const response = await api.post<TaskCreated>(
     `/tasks/upload/${uploadId}/complete`,
-    { level },
+    { level, metadata },
   );
   return response.data;
 };
@@ -367,6 +379,7 @@ export const uploadVideoChunked = async (
   file: File,
   level: string = 'QC-v4',
   onProgress?: (pct: number, statusMsg?: string) => void,
+  metadata: TaskMetadata = {},
 ): Promise<TaskCreated> => {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -411,7 +424,7 @@ export const uploadVideoChunked = async (
   }
 
   onProgress?.(100, '文件组装中，正在创建分析任务');
-  return completeChunkedUpload(upload_id, level);
+  return completeChunkedUpload(upload_id, level, metadata);
 };
 
 export const getVideoUrl = (taskId: string): string => `/api/tasks/${taskId}/video`;

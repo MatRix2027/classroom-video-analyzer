@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -60,7 +61,12 @@ class TaskService:
     """任务管理服务：创建、启动、查询分析任务。"""
 
     @staticmethod
-    def create_task(filename: str, file_content: bytes, extension: str) -> str:
+    def create_task(
+        filename: str,
+        file_content: bytes,
+        extension: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
         """创建新任务，保存上传的视频文件。
 
         Args:
@@ -94,7 +100,12 @@ class TaskService:
         logger.info(f"视频已保存：{video_path}（{len(file_content)} bytes）")
 
         # 写入数据库
-        db.create_task(task_id, filename, str(video_path))
+        db.create_task(
+            task_id,
+            filename,
+            str(video_path),
+            json.dumps(metadata or {}, ensure_ascii=False),
+        )
 
         return task_id
 
@@ -207,7 +218,11 @@ class TaskService:
         logger.debug(f"分块 {chunk_index} 已保存：{len(chunk_data)} bytes")
 
     @staticmethod
-    def complete_chunked_upload(upload_id: str, level: str = "QC-v4") -> str:
+    def complete_chunked_upload(
+        upload_id: str,
+        level: str = "QC-v4",
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
         """组装分块、创建任务并启动分析。
 
         Args:
@@ -260,7 +275,12 @@ class TaskService:
             raise ValueError(f"文件大小不匹配：期望 {total_size}，实际 {assembled_size}")
 
         # 写入数据库
-        db.create_task(task_id, filename, str(video_path))
+        db.create_task(
+            task_id,
+            filename,
+            str(video_path),
+            json.dumps(metadata or {}, ensure_ascii=False),
+        )
 
         # 清理分块临时目录
         __import__("shutil").rmtree(str(chunk_dir), ignore_errors=True)

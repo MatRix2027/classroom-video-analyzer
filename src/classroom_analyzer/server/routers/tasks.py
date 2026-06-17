@@ -173,6 +173,7 @@ async def init_chunked_upload(req: ChunkInitRequest) -> ChunkInitResponse:
 
 class ChunkCompleteRequest(BaseModel):
     level: str = "QC-v4"
+    metadata: dict[str, typing.Any] = {}
 
 
 @router.post("/tasks/upload/{upload_id}/complete", response_model=TaskCreated)
@@ -187,7 +188,7 @@ async def complete_chunked_upload(
     """
     try:
         task_id = await asyncio.to_thread(
-            TaskService.complete_chunked_upload, upload_id, req.level
+            TaskService.complete_chunked_upload, upload_id, req.level, req.metadata
         )
         return TaskCreated(id=task_id)
     except ValueError as e:
@@ -310,6 +311,12 @@ async def get_task_detail(task_id: str) -> TaskDetailResponse:
             scoring_data = None
 
     evidence_status = _build_evidence_status(task_id, scoring_data)
+    metadata = {}
+    if task.get("metadata_json"):
+        try:
+            metadata = json.loads(task["metadata_json"])
+        except Exception:
+            metadata = {}
 
     return TaskDetailResponse(
         id=task["id"],
@@ -322,6 +329,7 @@ async def get_task_detail(task_id: str) -> TaskDetailResponse:
         grade=task.get("grade"),
         scoring_data=scoring_data,
         evidence_status=evidence_status,
+        metadata=metadata,
         created_at=task.get("created_at"),
         completed_at=task.get("completed_at"),
     )

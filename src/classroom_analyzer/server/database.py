@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     total_score REAL,
     grade TEXT,
     scoring_data TEXT,
+    metadata_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP
 );
@@ -74,21 +75,28 @@ def init_db() -> None:
         try:
             conn.execute(_CREATE_TABLE_SQL)
             conn.execute(_CREATE_FEEDBACK_TABLE_SQL)
+            _ensure_column(conn, "tasks", "metadata_json", "TEXT")
             conn.commit()
             logger.info(f"数据库初始化完成：{DB_PATH}")
         finally:
             conn.close()
 
 
-def create_task(task_id: str, filename: str, video_path: str) -> None:
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_type: str) -> None:
+    columns = [row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
+def create_task(task_id: str, filename: str, video_path: str, metadata_json: str = "{}") -> None:
     """创建新任务记录。"""
     with _db_lock:
         conn = _get_conn()
         try:
             conn.execute(
-                "INSERT INTO tasks (id, filename, video_path, status, progress, current_stage) "
-                "VALUES (?, ?, ?, 'pending', 0, '等待开始')",
-                (task_id, filename, video_path),
+                "INSERT INTO tasks (id, filename, video_path, status, progress, current_stage, metadata_json) "
+                "VALUES (?, ?, ?, 'pending', 0, '等待开始', ?)",
+                (task_id, filename, video_path, metadata_json),
             )
             conn.commit()
         finally:

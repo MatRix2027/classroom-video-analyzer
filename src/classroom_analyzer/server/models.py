@@ -198,6 +198,7 @@ class TaskDetailResponse(BaseModel):
     grade: Optional[str] = None
     scoring_data: Optional[ScoreCardSchema] = None
     evidence_status: Optional[EvidenceStatus] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[str] = None
     completed_at: Optional[str] = None
 
