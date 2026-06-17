@@ -108,6 +108,8 @@ export interface TaskStatus {
   status: TaskStatusType;
   progress: number;
   current_stage: string;
+  created_at?: string | null;
+  completed_at?: string | null;
 }
 
 export interface TaskDetail {

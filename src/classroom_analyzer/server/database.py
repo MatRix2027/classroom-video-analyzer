@@ -171,7 +171,7 @@ def get_task_status(task_id: str) -> Optional[dict[str, Any]]:
         conn = _get_conn()
         try:
             row = conn.execute(
-                "SELECT id, status, progress, current_stage FROM tasks WHERE id=?",
+                "SELECT id, status, progress, current_stage, created_at, completed_at FROM tasks WHERE id=?",
                 (task_id,),
             ).fetchone()
             if row is None:
