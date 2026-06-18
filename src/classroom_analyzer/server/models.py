@@ -39,6 +39,8 @@ class TaskStatusResponse(BaseModel):
     progress: int = Field(ge=0, le=100, description="进度百分比")
     current_stage: str = Field(default="", description="当前阶段描述")
     created_at: Optional[str] = None
+    analysis_started_at: Optional[str] = None
+    status_updated_at: Optional[str] = None
     completed_at: Optional[str] = None
 
 

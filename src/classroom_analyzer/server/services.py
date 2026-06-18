@@ -124,7 +124,7 @@ class TaskService:
             raise ValueError(f"任务状态不允许启动分析：{task['status']}")
 
         # 更新状态为 extracting
-        db.update_task_status(task_id, "extracting", 0, "准备开始分析...")
+        db.mark_task_started(task_id, "extracting", "准备开始分析...")
 
         # 启动后台线程
         thread = threading.Thread(

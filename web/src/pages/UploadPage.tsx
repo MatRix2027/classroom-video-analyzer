@@ -28,8 +28,11 @@ const ALLOWED_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'flv', 'avi'];
 const MAX_SIZE = 2 * 1024 * 1024 * 1024;
 
 const LEVEL_OPTIONS = [
-  { value: 'QC-v4', label: '统一质检标准 QC-v4' },
-  { value: 'QA-v3', label: '通用巡检 QA-v3' },
+  { value: 'QC-v4', label: '课堂评分标准（融合版）' },
+  { value: 'L1_L3', label: '启蒙体系 K1-K3 课堂评分标准' },
+  { value: 'L4_L6', label: 'P1-P3 课堂评分标准' },
+  { value: 'L7_L9', label: 'P4-P6 课堂评分标准' },
+  { value: 'QA-v3', label: '质检课堂标准（专项巡检）' },
 ];
 
 const SYSTEMS = [
@@ -70,19 +73,19 @@ const ANALYSIS_MODES = [
   {
     id: 'quick',
     title: '快速初评',
-    eta: '约 10-25 分钟',
+    eta: '目标 5-10 分钟',
     summary: '优先完成转写、文本评分和基础建议，适合先判断大方向。',
   },
   {
     id: 'standard',
     title: '标准质检',
-    eta: '约 25-60 分钟',
+    eta: '目标 5-10 分钟',
     summary: '完整输出转写、事件、关键帧、视觉证据、维度评分和改进建议。',
   },
   {
     id: 'deep',
     title: '深度复盘',
-    eta: '约 45-90 分钟',
+    eta: '目标 10-20 分钟',
     summary: '更强调证据覆盖、复盘说明和人工校对，适合正式教研沉淀。',
   },
 ];
@@ -487,7 +490,7 @@ const UploadPage: React.FC = () => {
             <CardContent>
               <Typography variant="h6" sx={{ mb: 1.5 }}>输出结构</Typography>
               <Alert severity="info" sx={{ mb: 1.5 }}>
-                当前目标：{selectedScenario.title}；当前模式：{selectedMode.title}，预计耗时 {selectedMode.eta}。分析会在后台运行，可以稍后从分析记录回看结果。
+                当前目标：{selectedScenario.title}；当前模式：{selectedMode.title}，目标耗时 {selectedMode.eta}。分析会在后台运行，可以稍后从分析记录回看结果。
               </Alert>
               {['总分与等级', '红线风险', '维度评分', '证据片段', '改进建议', '人工校对'].map((item) => (
                 <Chip key={item} label={item} sx={{ mr: 1, mb: 1 }} variant="outlined" />

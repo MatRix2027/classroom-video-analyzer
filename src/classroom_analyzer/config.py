@@ -65,7 +65,7 @@ class ConfigManager:
             return self._app_config
 
         # 校验level参数（Task 3e 配置验证强化）
-        valid_levels = {"L1_L3", "L4_L6", "L7_L9", "QC-v4"}
+        valid_levels = {"L1_L3", "L4_L6", "L7_L9", "QC-v4", "QA-v3"}
         if level not in valid_levels:
             raise ConfigError(
                 f"无效的班型参数：{level}。有效值为：{', '.join(sorted(valid_levels))}"
@@ -81,6 +81,7 @@ class ConfigManager:
             "L4_L6": "L4-L6",
             "L7_L9": "L7-L9",
             "QC-v4": "QC-v4",
+            "QA-v3": "QA-v3",
         }
         yaml_level_key = level_key_map.get(level, "QC-v4")
         if levels_data and yaml_level_key not in levels_data:
@@ -244,6 +245,7 @@ class ConfigManager:
             "L4_L6": "L4-L6",
             "L7_L9": "L7-L9",
             "QC-v4": "QC-v4",
+            "QA-v3": "QA-v3",
         }
         yaml_level_key = level_key_map.get(level, "QC-v4")
         

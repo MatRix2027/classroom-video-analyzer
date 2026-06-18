@@ -122,10 +122,10 @@ function formatDuration(ms: number): string {
 }
 
 function estimateRemaining(elapsedMs: number, progress: number): string {
-  if (progress < 8 || progress >= 100) return '评估中';
-  const remaining = elapsedMs * ((100 - progress) / Math.max(progress, 1));
-  if (!Number.isFinite(remaining) || remaining <= 0) return '评估中';
-  return `约 ${formatDuration(remaining)}`;
+  if (progress >= 100) return '已完成';
+  if (elapsedMs <= 10 * 60 * 1000) return '目标 5-10 分钟';
+  if (elapsedMs <= 20 * 60 * 1000) return '已超目标，后台继续';
+  return '建议稍后回看或反馈任务';
 }
 
 const AnalyzingPage: React.FC = () => {
@@ -137,6 +137,7 @@ const AnalyzingPage: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [currentStage, setCurrentStage] = useState('任务已创建');
   const [createdAt, setCreatedAt] = useState<string | null>(null);
+  const [analysisStartedAt, setAnalysisStartedAt] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [retrying, setRetrying] = useState(false);
   const [task, setTask] = useState<TaskDetail | null>(null);
@@ -146,10 +147,15 @@ const AnalyzingPage: React.FC = () => {
   const [tick, setTick] = useState(Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressRef = useRef(0);
+  const firstSeenAtRef = useRef(Date.now());
 
   const activeStageIndex = stageIndex(currentStage, status);
   const activeStage = ANALYSIS_STAGES[activeStageIndex];
-  const startedAtMs = parseDate(createdAt) || Date.now();
+  const persistedStartedAt = parseDate(analysisStartedAt);
+  const createdAtMs = parseDate(createdAt);
+  const fallbackStartedAt =
+    createdAtMs && tick - createdAtMs < 12 * 60 * 60 * 1000 ? createdAtMs : firstSeenAtRef.current;
+  const startedAtMs = persistedStartedAt || fallbackStartedAt;
   const elapsedMs = Math.max(0, tick - startedAtMs);
   const remainingText = estimateRemaining(elapsedMs, progress);
   const noProgressMs = tick - lastProgressAt;
@@ -165,13 +171,20 @@ const AnalyzingPage: React.FC = () => {
     const pollStatus = async () => {
       try {
         const data: TaskStatus = await getTaskStatus(id);
+        const previousProgress = progressRef.current;
         setStatus(data.status);
         setProgress(data.progress);
         setCurrentStage(data.current_stage || '任务处理中');
         setCreatedAt(data.created_at || null);
+        setAnalysisStartedAt(data.analysis_started_at || null);
+        progressRef.current = data.progress;
 
-        if (data.progress !== progressRef.current) {
-          progressRef.current = data.progress;
+        const statusUpdatedAt = parseDate(data.status_updated_at);
+        if (statusUpdatedAt) {
+          setLastProgressAt(statusUpdatedAt);
+        }
+
+        if (!statusUpdatedAt && data.progress !== previousProgress) {
           setLastProgressAt(Date.now());
         }
 
@@ -294,7 +307,7 @@ const AnalyzingPage: React.FC = () => {
               />
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
                 <Typography variant="body2" color="text.secondary">总进度 {progress}%</Typography>
-                <Typography variant="body2" color="text.secondary">预计剩余：{remainingText}</Typography>
+                <Typography variant="body2" color="text.secondary">耗时目标：{remainingText}</Typography>
               </Box>
 
               <Box sx={{ mt: 2, p: 1.5, borderRadius: 1, bgcolor: '#f8fafc', border: '1px solid #e5e7eb' }}>

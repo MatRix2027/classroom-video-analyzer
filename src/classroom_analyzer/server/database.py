@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     scoring_data TEXT,
     metadata_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    analysis_started_at TIMESTAMP,
+    status_updated_at TIMESTAMP,
     completed_at TIMESTAMP
 );
 """
@@ -76,6 +78,8 @@ def init_db() -> None:
             conn.execute(_CREATE_TABLE_SQL)
             conn.execute(_CREATE_FEEDBACK_TABLE_SQL)
             _ensure_column(conn, "tasks", "metadata_json", "TEXT")
+            _ensure_column(conn, "tasks", "analysis_started_at", "TIMESTAMP")
+            _ensure_column(conn, "tasks", "status_updated_at", "TIMESTAMP")
             conn.commit()
             logger.info(f"数据库初始化完成：{DB_PATH}")
         finally:
@@ -110,12 +114,29 @@ def update_task_status(
     current_stage: str,
 ) -> None:
     """更新任务状态。"""
+    now = datetime.now().isoformat()
     with _db_lock:
         conn = _get_conn()
         try:
             conn.execute(
-                "UPDATE tasks SET status=?, progress=?, current_stage=? WHERE id=?",
-                (status, progress, current_stage, task_id),
+                "UPDATE tasks SET status=?, progress=?, current_stage=?, status_updated_at=? WHERE id=?",
+                (status, progress, current_stage, now, task_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def mark_task_started(task_id: str, status: str = "extracting", current_stage: str = "准备开始分析...") -> None:
+    """记录真实分析开始时间，用于耗时展示和失败重试重新计时。"""
+    now = datetime.now().isoformat()
+    with _db_lock:
+        conn = _get_conn()
+        try:
+            conn.execute(
+                "UPDATE tasks SET status=?, progress=0, current_stage=?, "
+                "analysis_started_at=?, status_updated_at=?, completed_at=NULL WHERE id=?",
+                (status, current_stage, now, now, task_id),
             )
             conn.commit()
         finally:
@@ -136,8 +157,8 @@ def update_task_completed(
             conn.execute(
                 "UPDATE tasks SET status='completed', progress=100, "
                 "current_stage='分析完成', total_score=?, grade=?, "
-                "scoring_data=?, completed_at=? WHERE id=?",
-                (total_score, grade, scoring_data, now, task_id),
+                "scoring_data=?, completed_at=?, status_updated_at=? WHERE id=?",
+                (total_score, grade, scoring_data, now, now, task_id),
             )
             conn.commit()
         finally:
@@ -150,8 +171,8 @@ def update_task_failed(task_id: str, error_message: str) -> None:
         conn = _get_conn()
         try:
             conn.execute(
-                "UPDATE tasks SET status='failed', current_stage=? WHERE id=?",
-                (error_message, task_id),
+                "UPDATE tasks SET status='failed', current_stage=?, status_updated_at=? WHERE id=?",
+                (error_message, datetime.now().isoformat(), task_id),
             )
             conn.commit()
         finally:
@@ -179,7 +200,8 @@ def get_task_status(task_id: str) -> Optional[dict[str, Any]]:
         conn = _get_conn()
         try:
             row = conn.execute(
-                "SELECT id, status, progress, current_stage, created_at, completed_at FROM tasks WHERE id=?",
+                "SELECT id, status, progress, current_stage, created_at, analysis_started_at, "
+                "status_updated_at, completed_at FROM tasks WHERE id=?",
                 (task_id,),
             ).fetchone()
             if row is None:

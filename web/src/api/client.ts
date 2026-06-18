@@ -109,6 +109,8 @@ export interface TaskStatus {
   progress: number;
   current_stage: string;
   created_at?: string | null;
+  analysis_started_at?: string | null;
+  status_updated_at?: string | null;
   completed_at?: string | null;
 }
 
