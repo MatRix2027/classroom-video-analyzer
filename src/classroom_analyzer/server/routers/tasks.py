@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
-from classroom_analyzer.paths import get_project_root
+from classroom_analyzer.paths import get_data_dir, get_project_root
 from classroom_analyzer.server.models import (
     CalibrationFeedbackCreate,
     CalibrationFeedbackListResponse,
@@ -37,7 +37,8 @@ from classroom_analyzer.server.services import TaskService
 router = APIRouter(prefix="/api", tags=["tasks"])
 
 PROJECT_ROOT = get_project_root()
-RESULTS_ROOT = PROJECT_ROOT / "data" / "results"
+DATA_ROOT = get_data_dir()
+RESULTS_ROOT = DATA_ROOT / "results"
 
 
 # ── 健康检查 ──
@@ -46,7 +47,7 @@ RESULTS_ROOT = PROJECT_ROOT / "data" / "results"
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """健康检查端点。"""
-    return HealthResponse(status="ok")
+    return HealthResponse(status="ok", data_dir=str(DATA_ROOT), build="persistent-data-v2")
 
 
 # ── 模型配置信息 ──

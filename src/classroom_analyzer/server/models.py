@@ -229,6 +229,8 @@ class HealthResponse(BaseModel):
     """健康检查响应."""
 
     status: str = "ok"
+    data_dir: Optional[str] = None
+    build: Optional[str] = None
 
 
 class StandardDimension(BaseModel):
