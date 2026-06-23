@@ -2,6 +2,9 @@ import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Box,
   Button,
   Card,
@@ -14,6 +17,7 @@ import {
 } from '@mui/material';
 import AutoAwesomeMotionIcon from '@mui/icons-material/AutoAwesomeMotion';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import ImageSearchIcon from '@mui/icons-material/ImageSearch';
@@ -107,7 +111,14 @@ function stageState(index: number, currentIndex: number, status: TaskStatusType)
 
 function parseDate(value?: string | null): number | null {
   if (!value) return null;
-  const timestamp = new Date(value).getTime();
+  const trimmed = value.trim();
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+  const normalized = hasTimezone
+    ? trimmed
+    : trimmed.includes('T')
+      ? `${trimmed}Z`
+      : `${trimmed.replace(' ', 'T')}Z`;
+  const timestamp = new Date(normalized).getTime();
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
@@ -152,15 +163,15 @@ const AnalyzingPage: React.FC = () => {
   const activeStageIndex = stageIndex(currentStage, status);
   const activeStage = ANALYSIS_STAGES[activeStageIndex];
   const persistedStartedAt = parseDate(analysisStartedAt);
-  const createdAtMs = parseDate(createdAt);
-  const fallbackStartedAt =
-    createdAtMs && tick - createdAtMs < 12 * 60 * 60 * 1000 ? createdAtMs : firstSeenAtRef.current;
-  const startedAtMs = persistedStartedAt || fallbackStartedAt;
+  const startedAtMs = persistedStartedAt || firstSeenAtRef.current;
   const elapsedMs = Math.max(0, tick - startedAtMs);
   const remainingText = estimateRemaining(elapsedMs, progress);
-  const noProgressMs = tick - lastProgressAt;
-  const hasLongRuntime = elapsedMs > 30 * 60 * 1000 && status !== 'completed' && status !== 'failed';
-  const looksQuiet = noProgressMs > 10 * 60 * 1000 && status !== 'completed' && status !== 'failed';
+  const noProgressMs = Math.max(0, tick - lastProgressAt);
+  const isRunning = status !== 'completed' && status !== 'failed';
+  const hasServerStartedAt = Boolean(persistedStartedAt);
+  const elapsedLabel = hasServerStartedAt ? '已耗时' : '本次查看';
+  const hasLongRuntime = elapsedMs > 30 * 60 * 1000 && isRunning;
+  const looksQuiet = noProgressMs > 10 * 60 * 1000 && isRunning;
 
   useEffect(() => {
     if (!id) return undefined;
@@ -254,7 +265,7 @@ const AnalyzingPage: React.FC = () => {
   }, [modelConfig]);
 
   return (
-    <Box sx={{ maxWidth: 1120, mx: 'auto', px: 3, py: 4 }}>
+    <Box sx={{ maxWidth: 1080, mx: 'auto', px: { xs: 2, md: 3 }, py: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'flex-start', mb: 3 }}>
         <Box>
           <Typography variant="h4">分析监控台</Typography>
@@ -272,23 +283,15 @@ const AnalyzingPage: React.FC = () => {
         </Box>
       </Box>
 
-      <Alert severity="info" sx={{ mb: 2 }}>
-        分析在后台持续执行，可以关闭页面或把链接发给同事；稍后从“分析记录”或当前链接回来即可查看进度和结果。
-      </Alert>
-
-      {hasLongRuntime && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          当前任务已运行 {formatDuration(elapsedMs)}。完整课堂视频在语音转写、视觉分析和报告生成阶段可能耗时较长；若长时间无变化，可先反馈当前任务或稍后回到本页查看。
+      {(hasLongRuntime || looksQuiet) && (
+        <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
+          {looksQuiet
+            ? `最近 ${formatDuration(noProgressMs)} 没有进度更新，后台任务可能在等待 ASR 或已被服务休眠中断。可先保留链接，必要时反馈或重试。`
+            : `当前任务运行时间超过预期，后台仍会继续处理；页面可关闭，稍后从当前链接回看。`}
         </Alert>
       )}
 
-      {looksQuiet && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          最近 {formatDuration(noProgressMs)} 内进度没有明显变化。系统仍会继续轮询，建议保留任务链接；如需排查，可提交“反馈当前任务”。
-        </Alert>
-      )}
-
-      <Card sx={{ mb: 2 }}>
+      <Card sx={{ mb: 2, borderRadius: 2, boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
         <CardContent>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.2fr 0.8fr' }, gap: 3 }}>
             <Box>
@@ -310,7 +313,7 @@ const AnalyzingPage: React.FC = () => {
                 <Typography variant="body2" color="text.secondary">耗时目标：{remainingText}</Typography>
               </Box>
 
-              <Box sx={{ mt: 2, p: 1.5, borderRadius: 1, bgcolor: '#f8fafc', border: '1px solid #e5e7eb' }}>
+              <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: '#f8fafc', border: '1px solid #e5e7eb' }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
                   {activeStage.label}
                 </Typography>
@@ -324,17 +327,16 @@ const AnalyzingPage: React.FC = () => {
             </Box>
 
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
-              <MetricCard icon={<ScheduleIcon />} label="已耗时" value={formatDuration(elapsedMs)} />
+              <MetricCard icon={<ScheduleIcon />} label={elapsedLabel} value={formatDuration(elapsedMs)} />
               <MetricCard icon={<RefreshIcon />} label="最近更新" value={`${formatDuration(noProgressMs)}前`} />
-              {modelItems.map((item) => (
-                <MetricCard key={item.label} icon={<ModelTrainingIcon />} label={item.label} value={item.value} />
-              ))}
+              <MetricCard icon={<ModelTrainingIcon />} label="处理阶段" value={activeStage.label} />
+              <MetricCard icon={<FeedbackIcon />} label="人工入口" value="可反馈" />
             </Box>
           </Box>
         </CardContent>
       </Card>
 
-      <Card variant="outlined" sx={{ bgcolor: '#f8fafc' }}>
+      <Card variant="outlined" sx={{ bgcolor: '#f8fafc', borderRadius: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
             <Box>
@@ -350,51 +352,63 @@ const AnalyzingPage: React.FC = () => {
 
           <StepProgress status={status} currentStage={currentStage} />
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)' }, gap: 1.5, mt: 3 }}>
-            {ANALYSIS_STAGES.map((item, index) => {
-              const state = stageState(index, activeStageIndex, status);
-              const active = state === 'active';
-              const done = state === 'done';
-              const failed = state === 'failed';
-              return (
-                <Box
-                  key={item.id}
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 1.5,
-                    border: '1px solid',
-                    borderColor: failed ? '#fecaca' : active ? '#86efac' : done ? '#bbf7d0' : '#e5e7eb',
-                    bgcolor: failed ? '#fef2f2' : active ? '#f0fdf4' : done ? '#f7fee7' : '#ffffff',
-                    minHeight: 132,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <Box sx={{ color: failed ? 'error.main' : active || done ? 'primary.main' : 'text.disabled', display: 'flex' }}>
-                      {item.icon}
+          <Accordion disableGutters sx={{ mt: 2, borderRadius: 2, '&:before': { display: 'none' } }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>查看详细流程与模型配置</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)' }, gap: 1.5 }}>
+                {ANALYSIS_STAGES.map((item, index) => {
+                  const state = stageState(index, activeStageIndex, status);
+                  const active = state === 'active';
+                  const done = state === 'done';
+                  const failed = state === 'failed';
+                  return (
+                    <Box
+                      key={item.id}
+                      sx={{
+                        p: 1.5,
+                        borderRadius: 1.5,
+                        border: '1px solid',
+                        borderColor: failed ? '#fecaca' : active ? '#86efac' : done ? '#bbf7d0' : '#e5e7eb',
+                        bgcolor: failed ? '#fef2f2' : active ? '#f0fdf4' : done ? '#f7fee7' : '#ffffff',
+                        minHeight: 118,
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <Box sx={{ color: failed ? 'error.main' : active || done ? 'primary.main' : 'text.disabled', display: 'flex' }}>
+                          {item.icon}
+                        </Box>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                          {item.label}
+                        </Typography>
+                      </Box>
+                      <Typography variant="body2" color="text.secondary" sx={{ minHeight: 44, lineHeight: 1.6 }}>
+                        {item.helper}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        sx={{ mt: 1 }}
+                        color={failed ? 'error' : active ? 'primary' : done ? 'success' : 'default'}
+                        variant={active || failed ? 'filled' : 'outlined'}
+                        label={failed ? '需处理' : active ? '正在处理' : done ? '已完成' : '等待中'}
+                      />
                     </Box>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                      {item.label}
-                    </Typography>
-                  </Box>
-                  <Typography variant="body2" color="text.secondary" sx={{ minHeight: 58, lineHeight: 1.6 }}>
-                    {item.helper}
-                  </Typography>
-                  <Chip
-                    size="small"
-                    sx={{ mt: 1 }}
-                    color={failed ? 'error' : active ? 'primary' : done ? 'success' : 'default'}
-                    variant={active || failed ? 'filled' : 'outlined'}
-                    label={failed ? '需处理' : active ? '正在处理' : done ? '已完成' : '等待中'}
-                  />
-                </Box>
-              );
-            })}
-          </Box>
+                  );
+                })}
+              </Box>
 
-          <Divider sx={{ my: 2 }} />
-          <Alert severity="info">
-            完成后可以在看板或报告页对总分、单项维度、关键帧和报告结论提交人工校对。每条校对都会绑定当前视频任务，进入“校对记录”用于后续优化。
-          </Alert>
+              <Divider sx={{ my: 2 }} />
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {modelItems.map((item) => (
+                  <Chip key={item.label} icon={<ModelTrainingIcon />} label={`${item.label}：${item.value}`} variant="outlined" />
+                ))}
+              </Box>
+              <Alert severity="info" sx={{ mt: 2 }}>
+                完成后可以在看板或报告页提交人工校对，反馈会绑定当前视频任务并进入校对记录。
+              </Alert>
+            </AccordionDetails>
+          </Accordion>
         </CardContent>
       </Card>
 
@@ -430,7 +444,7 @@ const AnalyzingPage: React.FC = () => {
 };
 
 const MetricCard: React.FC<{ icon: React.ReactNode; label: string; value: string }> = ({ icon, label, value }) => (
-  <Box sx={{ p: 1.5, border: '1px solid #e5e7eb', borderRadius: 1, bgcolor: '#ffffff', minHeight: 88 }}>
+  <Box sx={{ p: 1.35, border: '1px solid #e5e7eb', borderRadius: 2, bgcolor: '#ffffff', minHeight: 78 }}>
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'primary.main', mb: 0.75 }}>
       {icon}
       <Typography variant="caption" color="text.secondary">{label}</Typography>

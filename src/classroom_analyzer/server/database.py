@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,6 +16,29 @@ from classroom_analyzer.paths import get_project_root
 PROJECT_ROOT = get_project_root()
 DATA_DIR = PROJECT_ROOT / "data"
 DB_PATH = DATA_DIR / "tasks.db"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_db_time(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        if "T" not in text and " " in text:
+            text = text.replace(" ", "T", 1)
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None
 
 # 线程安全的数据库锁
 _db_lock = threading.Lock()
@@ -94,13 +117,14 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_typ
 
 def create_task(task_id: str, filename: str, video_path: str, metadata_json: str = "{}") -> None:
     """创建新任务记录。"""
+    now = _utc_now()
     with _db_lock:
         conn = _get_conn()
         try:
             conn.execute(
-                "INSERT INTO tasks (id, filename, video_path, status, progress, current_stage, metadata_json) "
-                "VALUES (?, ?, ?, 'pending', 0, '等待开始', ?)",
-                (task_id, filename, video_path, metadata_json),
+                "INSERT INTO tasks (id, filename, video_path, status, progress, current_stage, metadata_json, "
+                "created_at, status_updated_at) VALUES (?, ?, ?, 'pending', 0, '等待开始', ?, ?, ?)",
+                (task_id, filename, video_path, metadata_json, now, now),
             )
             conn.commit()
         finally:
@@ -114,7 +138,7 @@ def update_task_status(
     current_stage: str,
 ) -> None:
     """更新任务状态。"""
-    now = datetime.now().isoformat()
+    now = _utc_now()
     with _db_lock:
         conn = _get_conn()
         try:
@@ -129,7 +153,7 @@ def update_task_status(
 
 def mark_task_started(task_id: str, status: str = "extracting", current_stage: str = "准备开始分析...") -> None:
     """记录真实分析开始时间，用于耗时展示和失败重试重新计时。"""
-    now = datetime.now().isoformat()
+    now = _utc_now()
     with _db_lock:
         conn = _get_conn()
         try:
@@ -150,7 +174,7 @@ def update_task_completed(
     scoring_data: str,
 ) -> None:
     """标记任务完成，写入评分数据。"""
-    now = datetime.now().isoformat()
+    now = _utc_now()
     with _db_lock:
         conn = _get_conn()
         try:
@@ -172,7 +196,7 @@ def update_task_failed(task_id: str, error_message: str) -> None:
         try:
             conn.execute(
                 "UPDATE tasks SET status='failed', current_stage=?, status_updated_at=? WHERE id=?",
-                (error_message, datetime.now().isoformat(), task_id),
+                (error_message, _utc_now(), task_id),
             )
             conn.commit()
         finally:
@@ -207,6 +231,47 @@ def get_task_status(task_id: str) -> Optional[dict[str, Any]]:
             if row is None:
                 return None
             return dict(row)
+        finally:
+            conn.close()
+
+
+def mark_stale_running_tasks_failed(max_age_minutes: int = 30) -> int:
+    """Mark orphaned background jobs as failed after a server restart or long inactivity."""
+    running_statuses = ("extracting", "transcribing", "analyzing", "scoring")
+    now_dt = datetime.now(timezone.utc)
+    failed_ids: list[str] = []
+    with _db_lock:
+        conn = _get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT id, status_updated_at, analysis_started_at, created_at FROM tasks "
+                "WHERE status IN (?, ?, ?, ?)",
+                running_statuses,
+            ).fetchall()
+            for row in rows:
+                last_seen = (
+                    _parse_db_time(row["status_updated_at"])
+                    or _parse_db_time(row["analysis_started_at"])
+                    or _parse_db_time(row["created_at"])
+                )
+                if last_seen is None:
+                    continue
+                age_minutes = (now_dt - last_seen).total_seconds() / 60
+                if age_minutes >= max_age_minutes:
+                    failed_ids.append(row["id"])
+
+            if failed_ids:
+                now = _utc_now()
+                message = (
+                    "分析中断：后台服务可能已休眠或重启，当前任务已停止。"
+                    "请点击“重试分析”继续处理已上传的视频。"
+                )
+                conn.executemany(
+                    "UPDATE tasks SET status='failed', current_stage=?, status_updated_at=? WHERE id=?",
+                    [(message, now, task_id) for task_id in failed_ids],
+                )
+                conn.commit()
+            return len(failed_ids)
         finally:
             conn.close()
 

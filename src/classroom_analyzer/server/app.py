@@ -12,7 +12,7 @@ from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from classroom_analyzer.paths import get_project_root
-from classroom_analyzer.server.database import init_db
+from classroom_analyzer.server.database import init_db, mark_stale_running_tasks_failed
 from classroom_analyzer.server.routers import standards, tasks
 
 # 项目根目录
@@ -26,6 +26,9 @@ async def lifespan(app: FastAPI):
     # 启动
     logger.info("火花课堂视频分析服务启动中...")
     init_db()
+    stale_count = mark_stale_running_tasks_failed()
+    if stale_count:
+        logger.warning(f"已标记 {stale_count} 个长时间无更新的运行中任务为失败，可由用户重试")
     logger.info("数据库初始化完成")
 
     # 检查前端构建产物
