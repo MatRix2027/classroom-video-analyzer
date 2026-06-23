@@ -36,4 +36,6 @@ def get_data_dir() -> Path:
     env_data_dir = os.environ.get("CLASSROOM_ANALYZER_DATA_DIR", "").strip()
     if env_data_dir:
         return Path(env_data_dir).expanduser().resolve()
+    if os.environ.get("RENDER"):
+        return Path("/var/data").resolve()
     return get_project_root() / "data"
