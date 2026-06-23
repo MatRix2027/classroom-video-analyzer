@@ -5,16 +5,13 @@ from __future__ import annotations
 import sqlite3
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
 
-from classroom_analyzer.paths import get_project_root
+from classroom_analyzer.paths import get_data_dir
 
-# 项目根目录
-PROJECT_ROOT = get_project_root()
-DATA_DIR = PROJECT_ROOT / "data"
+DATA_DIR = get_data_dir()
 DB_PATH = DATA_DIR / "tasks.db"
 
 

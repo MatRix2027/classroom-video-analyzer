@@ -23,3 +23,17 @@ def get_project_root() -> Path:
         return cwd
 
     return Path(__file__).resolve().parent.parent.parent
+
+
+def get_data_dir() -> Path:
+    """Return the writable runtime data directory.
+
+    Local runs use ``<project>/data``. Cloud deployments can set
+    ``CLASSROOM_ANALYZER_DATA_DIR`` to a persistent disk mount such as
+    ``/var/data`` so uploaded videos, task DB, and generated reports survive
+    redeploys and restarts.
+    """
+    env_data_dir = os.environ.get("CLASSROOM_ANALYZER_DATA_DIR", "").strip()
+    if env_data_dir:
+        return Path(env_data_dir).expanduser().resolve()
+    return get_project_root() / "data"

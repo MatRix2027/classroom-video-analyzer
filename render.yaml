@@ -2,13 +2,19 @@ services:
   - type: web
     name: classroom-video-analyzer
     runtime: docker
-    plan: free
+    plan: starter
     region: oregon
     dockerfilePath: ./Dockerfile
     envVars:
       - key: API_KEYS_JSON
         sync: false
+      - key: CLASSROOM_ANALYZER_DATA_DIR
+        value: /var/data
       - key: PORT
         value: 8001
       - key: PYTHONUNBUFFERED
         value: "1"
+    disk:
+      name: classroom-video-analyzer-data
+      mountPath: /var/data
+      sizeGB: 10

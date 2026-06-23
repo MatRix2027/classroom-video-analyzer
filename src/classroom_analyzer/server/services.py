@@ -11,12 +11,12 @@ from typing import Any, Callable, Optional
 
 from loguru import logger
 
-from classroom_analyzer.paths import get_project_root
+from classroom_analyzer.paths import get_data_dir, get_project_root
 from classroom_analyzer.server import database as db
 
 # 项目根目录
 PROJECT_ROOT = get_project_root()
-DATA_DIR = PROJECT_ROOT / "data"
+DATA_DIR = get_data_dir()
 UPLOAD_DIR = DATA_DIR / "uploads"
 RESULTS_DIR = DATA_DIR / "results"
 CONFIG_PATH = PROJECT_ROOT / "config" / "default.yaml"
