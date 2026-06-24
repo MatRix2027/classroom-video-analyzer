@@ -415,6 +415,20 @@ class AnalysisPipeline:
         }
         prompt_version = self._get_prompt_version()
         num_rounds = self._config.analysis_config.get("num_rounds", 1)
+        analysis_mode = str(self._config.analysis_config.get("analysis_mode", "standard")).lower()
+        video_scope = str(self._config.analysis_config.get("video_scope", "full"))
+        is_clip_analysis = analysis_mode in {"quick", "fast"} or any(
+            marker in video_scope for marker in ("片段", "切片", "clip", "segment")
+        )
+        if is_clip_analysis:
+            visual_observation_frames = 10
+            visual_score_frames = 4
+        elif analysis_mode in {"deep", "full"}:
+            visual_observation_frames = 24
+            visual_score_frames = 8
+        else:
+            visual_observation_frames = 16
+            visual_score_frames = 6
 
         # 0. 视觉预观察（如已配置视觉模型 + 有关键帧）
         # 目的：在文本模型评分前，让视觉模型观察课堂画面，输出行为描述
@@ -432,6 +446,7 @@ class AnalysisPipeline:
                         keyframes_dir=keyframes_dir,
                         transcript=transcript,
                         events=events,
+                        max_frames=visual_observation_frames,
                     )
                     if visual_observation:
                         logger.info(f"视觉预观察完成，提取行为描述 {len(visual_observation)} 字符")
@@ -484,6 +499,7 @@ class AnalysisPipeline:
                     prompt_version=prompt_version,
                     num_rounds=1,  # 视觉模型只跑1轮（节省成本）
                     keyframe_dir=keyframes_dir,
+                    max_keyframes=visual_score_frames,
                 )
                 # 记录视觉模型返回的分数，方便排查0分问题
                 if vision_scores:
@@ -532,24 +548,21 @@ class AnalysisPipeline:
                 # 使用文本模型评分（含视觉维度 fallback）
                 dim = text_by_name[dim_name]
                 if dim_name in VISUAL_DIMENSIONS:
-                    # 视觉维度 fallback：文本模型无法看视频，不应用其低分扣分
-                    # 规则：文本模型对视觉维度给分低于满分60% → 视为"无法评估"，给中间分(满分60%)
-                    # 避免出现"看不见板书→默认扣分"的误判
+                    # 视觉维度 fallback：没有有效视觉评分时，不让文本模型的高分/低分冒充视觉结论。
+                    # 统一给中性待复核分，避免“文本证据 5/5”拉高总分，也避免纯文本误扣板书/仪态。
                     fallback_threshold = dim_max_score * 0.60
-                    if dim.score < fallback_threshold:
-                        logger.info(
-                            f"  维度 '{dim_name}'：视觉评分无效，文本模型分数 {dim.score:.1f} 低于阈值 "
-                            f"{fallback_threshold:.1f}（满分{dim_max_score}的60%），使用中间分 {fallback_threshold:.1f}"
-                        )
-                        dim.score = fallback_threshold
-                        dim.evidence = (
-                            f"[视觉维度·仅供参考] 视觉模型未运行，当前分数基于文本分析，可能不准确。"
-                            f"建议在视觉模型就绪后重新评估此维度。"
-                            + (f" 原文本评估：{dim.evidence}" if dim.evidence else "")
-                        )
-                    else:
-                        logger.info(f"  维度 '{dim_name}'：视觉评分无效，文本模型分数 {dim.score:.1f} 高于阈值，保留文本评分")
-                    dim.source_model = "text"  # 视觉模型不可用时用文本模型
+                    logger.info(
+                        f"  维度 '{dim_name}'：视觉评分无效，文本分数 {dim.score:.1f} 不作为最终视觉分，"
+                        f"使用待复核中性分 {fallback_threshold:.1f}"
+                    )
+                    original_evidence = dim.evidence or ""
+                    dim.score = fallback_threshold
+                    dim.evidence = (
+                        f"[视觉维度·待人工校对] 未获得有效的独立视觉评分，当前采用满分60%的中性分。"
+                        f"请结合关键帧复核教师仪态、板书/课件结构、课堂软件操作等画面证据。"
+                        + (f" 文本模型原判断：{original_evidence}" if original_evidence else "")
+                    )
+                    dim.source_model = "vision_enhanced"
                 else:
                     dim.source_model = "text"
                 merged_scores.append(dim)
@@ -641,6 +654,7 @@ class AnalysisPipeline:
         keyframes_dir: str,
         transcript: "Transcript",
         events: "EventTimeline",
+        max_frames: int = 16,
     ) -> str:
         """视觉预观察：让视觉模型观察关键帧，输出课堂行为描述（不评分）。
 
@@ -653,9 +667,11 @@ class AnalysisPipeline:
         if not self._vision_analyzer:
             return ""
 
-        # 采样关键帧（增加采样量：双轨制产生更多帧，取 max_frames=30 确保覆盖）
+        # 采样关键帧：按分析模式控制输入规模，降低短视频/快速分析的等待时间。
         sampled = self._vision_analyzer._sample_keyframes(
-            keyframes_dir, max_frames=30, bucket_count=20
+            keyframes_dir,
+            max_frames=max_frames,
+            bucket_count=max(4, min(max_frames, 12)),
         )
         if not sampled:
             logger.warning("视觉预观察：无可用关键帧")

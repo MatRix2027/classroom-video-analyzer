@@ -143,6 +143,7 @@ class LLMAnalyzer:
         prompt_version: str = "standard",
         num_rounds: int = 1,
         keyframe_dir: Optional[str] = None,
+        max_keyframes: int = 8,
         visual_context: Optional[str] = None,
         interaction_chains: Optional[str] = None,
     ) -> tuple[list[QualityCheckItem], list[ScoreDimension]]:
@@ -156,6 +157,7 @@ class LLMAnalyzer:
             prompt_version: Prompt版本，"standard" 或 "spark_standard"
             num_rounds: 评估轮数（≥1），多轮时取均值并计算标准差
             keyframe_dir: 关键帧目录路径，传入后LLM将同时分析视频画面
+            max_keyframes: 视觉评分最多使用的关键帧数量
             visual_context: 视觉预观察结果文本（由视觉模型提前观察课堂画面生成），
                             注入到文本模型的上下文中，帮助文本模型理解视频中的行为信息
 
@@ -197,7 +199,7 @@ class LLMAnalyzer:
         # 采样关键帧（如有），构建多模态用户消息
         sampled_images: list[str] = []
         if keyframe_dir:
-            sampled_images = self._sample_keyframes(keyframe_dir, max_frames=8)
+            sampled_images = self._sample_keyframes(keyframe_dir, max_frames=max_keyframes)
             if sampled_images:
                 logger.info(f"使用 {len(sampled_images)} 张关键帧进行视觉分析")
             else:
@@ -1322,9 +1324,25 @@ def _fuzzy_match_dimension(
         "教学方法灵活应用": "教学方式方法",
         "课堂互动": "关注公平",
         "关注互动": "关注公平",
+        "学生参与": "关注公平",
+        "参与公平": "关注公平",
+        "互动公平": "关注公平",
         "课堂节奏": "组织教学",
         "仪表举止": "仪表教态",
+        "教师仪态": "仪表教态",
+        "仪表仪态": "仪表教态",
+        "仪表仪态与教态": "仪表教态",
+        "教态仪表": "仪表教态",
+        "板书设计": "语言表达及板书设计",
+        "语言表达": "语言表达及板书设计",
+        "语言表达与板书": "语言表达及板书设计",
+        "语言表达与板书设计": "语言表达及板书设计",
+        "板书与课件": "语言表达及板书设计",
+        "课件板书": "语言表达及板书设计",
         "学习效果": "课堂效果及整体印象",
+        "课堂氛围": "课堂效果及整体印象",
+        "整体印象": "课堂效果及整体印象",
+        "课堂效果": "课堂效果及整体印象",
         "迁移应用": "课堂效果及整体印象",
         "效果外化": "课堂效果及整体印象",
         # QC-v4 → 旧班型映射（反向）

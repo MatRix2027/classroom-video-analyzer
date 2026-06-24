@@ -320,6 +320,16 @@ def _run_analysis_thread(task_id: str, video_path: str, level: str) -> None:
             api_keys_path=str(API_KEYS_PATH),
         )
         app_config = config_manager.load(level=level)
+        task = db.get_task(task_id) or {}
+        try:
+            task_metadata = json.loads(task.get("metadata_json") or "{}")
+        except Exception:
+            task_metadata = {}
+        if isinstance(task_metadata, dict):
+            for key in ("analysis_mode", "video_scope", "analysis_purpose", "course_system", "class_type"):
+                value = task_metadata.get(key)
+                if value:
+                    app_config.analysis_config[key] = value
 
         # 创建输出目录
         output_dir = RESULTS_DIR / task_id

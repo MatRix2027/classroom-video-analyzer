@@ -43,6 +43,8 @@ const DimensionCard: React.FC<DimensionCardProps> = ({
   const percentage = dimension.max_score > 0 ? (dimension.score / dimension.max_score) * 100 : 0;
   const gradeColor = GRADE_COLORS[dimension.grade] || '#64748b';
   const isVision = dimension.source_model === 'vision';
+  const isVisionReview = dimension.source_model === 'vision_enhanced';
+  const sourceLabel = isVision ? '视觉证据' : isVisionReview ? '视觉待复核' : '文本证据';
 
   return (
     <Card sx={{ mb: 1.5 }}>
@@ -58,8 +60,8 @@ const DimensionCard: React.FC<DimensionCardProps> = ({
               </Typography>
               <Chip label={dimension.grade || '未评级'} size="small" sx={{ bgcolor: gradeColor, color: '#ffffff', fontWeight: 700 }} />
               <Chip
-                icon={isVision ? <VisibilityIcon /> : <TextFieldsIcon />}
-                label={isVision ? '视觉证据' : '文本证据'}
+                icon={isVision || isVisionReview ? <VisibilityIcon /> : <TextFieldsIcon />}
+                label={sourceLabel}
                 size="small"
                 variant="outlined"
               />
