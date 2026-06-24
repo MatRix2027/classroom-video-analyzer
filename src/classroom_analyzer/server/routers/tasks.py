@@ -47,7 +47,7 @@ RESULTS_ROOT = DATA_ROOT / "results"
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """健康检查端点。"""
-    return HealthResponse(status="ok", data_dir=str(DATA_ROOT), build="persistent-data-v2")
+    return HealthResponse(status="ok", data_dir=str(DATA_ROOT), build="visual-calibration-v1")
 
 
 # ── 模型配置信息 ──
