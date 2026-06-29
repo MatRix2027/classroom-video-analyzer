@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 import uuid
 import json
@@ -184,12 +185,15 @@ class TaskService:
         upload_id = uuid.uuid4().hex
         chunk_dir = CHUNK_DIR / upload_id
         chunk_dir.mkdir(parents=True, exist_ok=True)
+        total_chunks = max(1, math.ceil(total_size / CHUNK_SIZE))
 
         # 保存元信息
         meta = {
             "filename": filename,
             "extension": ext,
             "total_size": total_size,
+            "chunk_size": CHUNK_SIZE,
+            "total_chunks": total_chunks,
             "created_at": datetime.now().isoformat(),
         }
         (chunk_dir / "meta.json").write_text(
@@ -212,10 +216,58 @@ class TaskService:
         chunk_dir = CHUNK_DIR / upload_id
         if not chunk_dir.exists():
             raise ValueError(f"上传会话不存在：{upload_id}")
+        meta_path = chunk_dir / "meta.json"
+        if not meta_path.exists():
+            raise ValueError(f"上传会话元信息丢失：{upload_id}")
+
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        total_chunks = int(meta.get("total_chunks") or 0)
+        chunk_size = int(meta.get("chunk_size") or CHUNK_SIZE)
+        total_size = int(meta.get("total_size") or 0)
+        if chunk_index < 0 or chunk_index >= total_chunks:
+            raise ValueError(f"分块序号超出范围：{chunk_index}，应为 0-{max(total_chunks - 1, 0)}")
+        if not chunk_data:
+            raise ValueError(f"分块 {chunk_index} 为空，请重新上传该分块")
+
+        expected_size = chunk_size if chunk_index < total_chunks - 1 else total_size - chunk_size * (total_chunks - 1)
+        if len(chunk_data) != expected_size:
+            raise ValueError(
+                f"分块 {chunk_index} 大小不匹配：期望 {expected_size} bytes，实际 {len(chunk_data)} bytes"
+            )
 
         chunk_path = chunk_dir / f"{chunk_index:06d}.part"
         chunk_path.write_bytes(chunk_data)
         logger.debug(f"分块 {chunk_index} 已保存：{len(chunk_data)} bytes")
+
+    @staticmethod
+    def get_chunked_upload_status(upload_id: str) -> dict[str, Any]:
+        """获取分块上传会话状态，用于前端排查和断点重试。"""
+        chunk_dir = CHUNK_DIR / upload_id
+        if not chunk_dir.exists():
+            raise ValueError(f"上传会话不存在：{upload_id}")
+        meta_path = chunk_dir / "meta.json"
+        if not meta_path.exists():
+            raise ValueError(f"上传会话元信息丢失：{upload_id}")
+
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        total_chunks = int(meta.get("total_chunks") or 0)
+        received = sorted(
+            int(path.stem)
+            for path in chunk_dir.glob("*.part")
+            if path.stem.isdigit()
+        )
+        received_set = set(received)
+        missing = [index for index in range(total_chunks) if index not in received_set]
+        return {
+            "upload_id": upload_id,
+            "filename": meta.get("filename", ""),
+            "total_size": int(meta.get("total_size") or 0),
+            "chunk_size": int(meta.get("chunk_size") or CHUNK_SIZE),
+            "total_chunks": total_chunks,
+            "received_chunks": len(received),
+            "missing_chunks": missing,
+            "complete": total_chunks > 0 and not missing,
+        }
 
     @staticmethod
     def complete_chunked_upload(
@@ -244,13 +296,19 @@ class TaskService:
         filename = meta["filename"]
         ext = meta["extension"]
         total_size = meta["total_size"]
+        chunk_size = int(meta.get("chunk_size") or CHUNK_SIZE)
+        total_chunks = int(meta.get("total_chunks") or max(1, math.ceil(total_size / chunk_size)))
 
-        # 收集所有分块并按序号排序
-        part_files = sorted(chunk_dir.glob("*.part"))
-        if not part_files:
+        expected_files = [chunk_dir / f"{index:06d}.part" for index in range(total_chunks)]
+        missing = [index for index, path in enumerate(expected_files) if not path.exists()]
+        if len(missing) == total_chunks:
             raise ValueError(f"没有收到任何分块：{upload_id}")
+        if missing:
+            preview = ", ".join(str(index) for index in missing[:10])
+            suffix = "..." if len(missing) > 10 else ""
+            raise ValueError(f"分块上传不完整，缺少 {len(missing)} 个分块：{preview}{suffix}。请重新上传缺失分块后再提交。")
 
-        logger.info(f"开始组装分块：upload_id={upload_id}, chunks={len(part_files)}")
+        logger.info(f"开始组装分块：upload_id={upload_id}, chunks={len(expected_files)}")
 
         # 创建任务
         task_id = uuid.uuid4().hex
@@ -261,7 +319,7 @@ class TaskService:
         # 按序拼接分块
         assembled_size = 0
         with open(video_path, "wb") as outfile:
-            for part_file in part_files:
+            for part_file in expected_files:
                 data = part_file.read_bytes()
                 outfile.write(data)
                 assembled_size += len(data)

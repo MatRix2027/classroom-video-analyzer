@@ -319,7 +319,7 @@ export const getCalibrationFeedbackList = async (
   return response.data;
 };
 
-const CHUNK_SIZE = 1 * 1024 * 1024;
+const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 const CHUNK_UPLOAD_TIMEOUT = 120_000;
 const MAX_CHUNK_RETRIES = 2;
 const PARALLEL_UPLOADS = 5;
@@ -386,18 +386,20 @@ export const uploadVideoChunked = async (
   metadata: TaskMetadata = {},
 ): Promise<TaskCreated> => {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
-  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
   const sizeMB = (file.size / 1024 / 1024).toFixed(1);
 
+  onProgress?.(0, `准备上传 ${sizeMB} MB，正在初始化上传会话`);
+  const { upload_id, chunk_size } = await initChunkedUpload(file.name, ext, file.size);
+  const chunkSize = chunk_size || DEFAULT_CHUNK_SIZE;
+  const totalChunks = Math.ceil(file.size / chunkSize);
   onProgress?.(0, `准备上传 ${sizeMB} MB，共 ${totalChunks} 个分块`);
-  const { upload_id } = await initChunkedUpload(file.name, ext, file.size);
 
   let completed = 0;
   const errors: Array<{ index: number; err: unknown }> = [];
 
   const uploadOne = async (i: number): Promise<void> => {
-    const start = i * CHUNK_SIZE;
-    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const start = i * chunkSize;
+    const end = Math.min(start + chunkSize, file.size);
     const chunk = file.slice(start, end);
 
     try {
@@ -427,7 +429,7 @@ export const uploadVideoChunked = async (
     throw new Error(`分块上传失败：${errors.map((e) => e.index).join(', ')}`);
   }
 
-  onProgress?.(100, '文件组装中，正在创建分析任务');
+  onProgress?.(100, '分块校验与文件组装中，正在创建分析任务');
   return completeChunkedUpload(upload_id, level, metadata);
 };
 

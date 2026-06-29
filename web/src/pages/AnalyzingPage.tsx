@@ -44,6 +44,7 @@ import CalibrationFeedbackDialog from '../components/CalibrationFeedbackDialog';
 import StepProgress from '../components/StepProgress';
 
 const POLL_INTERVAL = 3000;
+const PREVIEW_TASK_ID = 'ui-preview';
 
 const ANALYSIS_STAGES = [
   {
@@ -159,6 +160,7 @@ const AnalyzingPage: React.FC = () => {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressRef = useRef(0);
   const firstSeenAtRef = useRef(Date.now());
+  const isPreviewTask = id === PREVIEW_TASK_ID;
 
   const activeStageIndex = stageIndex(currentStage, status);
   const activeStage = ANALYSIS_STAGES[activeStageIndex];
@@ -167,17 +169,34 @@ const AnalyzingPage: React.FC = () => {
   const elapsedMs = Math.max(0, tick - startedAtMs);
   const remainingText = estimateRemaining(elapsedMs, progress);
   const noProgressMs = Math.max(0, tick - lastProgressAt);
-  const isRunning = status !== 'completed' && status !== 'failed';
+  const isRunning = status !== 'completed' && status !== 'failed' && !isPreviewTask;
   const hasServerStartedAt = Boolean(persistedStartedAt);
   const elapsedLabel = hasServerStartedAt ? '已耗时' : '本次查看';
   const hasLongRuntime = elapsedMs > 30 * 60 * 1000 && isRunning;
   const looksQuiet = noProgressMs > 10 * 60 * 1000 && isRunning;
+  const progressTargetText = isPreviewTask ? '预览模式' : remainingText;
+  const recentUpdateText = isPreviewTask ? '不轮询' : `${formatDuration(noProgressMs)}前`;
 
   useEffect(() => {
     if (!id) return undefined;
 
-    getTaskDetail(id).then(setTask).catch(() => undefined);
     getModelConfig().then(setModelConfig).catch(() => undefined);
+
+    if (isPreviewTask) {
+      setTask(null);
+      setStatus('analyzing');
+      setProgress(66);
+      setCurrentStage('UI 预览：视觉分析演示');
+      setCreatedAt(null);
+      setAnalysisStartedAt(null);
+      setError('');
+      setLastProgressAt(Date.now());
+      progressRef.current = 66;
+      const clock = setInterval(() => setTick(Date.now()), 1000);
+      return () => clearInterval(clock);
+    }
+
+    getTaskDetail(id).then(setTask).catch(() => undefined);
 
     const pollStatus = async () => {
       try {
@@ -212,8 +231,10 @@ const AnalyzingPage: React.FC = () => {
           setError(data.current_stage || '分析失败');
           showToast('分析失败', 'error');
         }
-      } catch {
-        setError('获取任务状态失败');
+      } catch (err: any) {
+        const statusCode = err?.response?.status;
+        const detail = err?.response?.data?.detail;
+        setError(statusCode === 404 ? '任务不存在或链接已失效，请从分析记录重新打开。' : detail || '获取任务状态失败，请稍后刷新页面。');
       }
     };
 
@@ -225,7 +246,7 @@ const AnalyzingPage: React.FC = () => {
       if (timerRef.current) clearInterval(timerRef.current);
       clearInterval(clock);
     };
-  }, [id, navigate, showToast]);
+  }, [id, isPreviewTask, navigate, showToast]);
 
   const handleRetry = async () => {
     if (!id) return;
@@ -277,11 +298,23 @@ const AnalyzingPage: React.FC = () => {
           <Button variant="outlined" startIcon={<ContentCopyIcon />} onClick={copyLink}>
             复制链接
           </Button>
-          <Button variant="outlined" startIcon={<FeedbackIcon />} onClick={() => setFeedbackOpen(true)}>
-            反馈当前任务
+          <Button variant="outlined" startIcon={<FeedbackIcon />} onClick={() => setFeedbackOpen(true)} disabled={isPreviewTask}>
+            {isPreviewTask ? '预览不可反馈' : '反馈当前任务'}
           </Button>
         </Box>
       </Box>
+
+      {isPreviewTask && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          当前为本地 UI 预览态，不会请求后端任务状态接口；上传真实视频后会自动创建任务并开始轮询分析进度。
+        </Alert>
+      )}
+
+      {error && status !== 'failed' && (
+        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {(hasLongRuntime || looksQuiet) && (
         <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
@@ -310,7 +343,7 @@ const AnalyzingPage: React.FC = () => {
               />
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
                 <Typography variant="body2" color="text.secondary">总进度 {progress}%</Typography>
-                <Typography variant="body2" color="text.secondary">耗时目标：{remainingText}</Typography>
+                <Typography variant="body2" color="text.secondary">耗时目标：{progressTargetText}</Typography>
               </Box>
 
               <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: '#f8fafc', border: '1px solid #e5e7eb' }}>
@@ -328,9 +361,9 @@ const AnalyzingPage: React.FC = () => {
 
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
               <MetricCard icon={<ScheduleIcon />} label={elapsedLabel} value={formatDuration(elapsedMs)} />
-              <MetricCard icon={<RefreshIcon />} label="最近更新" value={`${formatDuration(noProgressMs)}前`} />
+              <MetricCard icon={<RefreshIcon />} label="最近更新" value={recentUpdateText} />
               <MetricCard icon={<ModelTrainingIcon />} label="处理阶段" value={activeStage.label} />
-              <MetricCard icon={<FeedbackIcon />} label="人工入口" value="可反馈" />
+              <MetricCard icon={<FeedbackIcon />} label="人工入口" value={isPreviewTask ? '真实任务可用' : '可反馈'} />
             </Box>
           </Box>
         </CardContent>
@@ -342,7 +375,9 @@ const AnalyzingPage: React.FC = () => {
             <Box>
               <Typography variant="h6">质检分析流程</Typography>
               <Typography variant="body2" color="text.secondary">
-                长任务会分阶段更新。当前页面每 {POLL_INTERVAL / 1000} 秒自动刷新一次状态。
+                {isPreviewTask
+                  ? '当前为本地 UI 预览，不会轮询后端任务状态。'
+                  : `长任务会分阶段更新。当前页面每 ${POLL_INTERVAL / 1000} 秒自动刷新一次状态。`}
               </Typography>
             </Box>
             <Tooltip title="完成后可在报告页逐项提交人工校对，形成优化案例库">
@@ -405,7 +440,9 @@ const AnalyzingPage: React.FC = () => {
                 ))}
               </Box>
               <Alert severity="info" sx={{ mt: 2 }}>
-                完成后可以在看板或报告页提交人工校对，反馈会绑定当前视频任务并进入校对记录。
+                {isPreviewTask
+                  ? '预览态仅用于检查界面，不会写入任务、报告或校对记录。'
+                  : '完成后可以在看板或报告页提交人工校对，反馈会绑定当前视频任务并进入校对记录。'}
               </Alert>
             </AccordionDetails>
           </Accordion>

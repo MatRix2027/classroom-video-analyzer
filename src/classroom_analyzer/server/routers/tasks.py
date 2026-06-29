@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from classroom_analyzer.paths import get_data_dir, get_project_root
 from classroom_analyzer.server.models import (
@@ -158,6 +158,17 @@ class ChunkInitResponse(BaseModel):
     chunk_size: int = 5 * 1024 * 1024  # 建议分块大小 5MB
 
 
+class ChunkUploadStatusResponse(BaseModel):
+    upload_id: str
+    filename: str = ""
+    total_size: int = 0
+    chunk_size: int = 5 * 1024 * 1024
+    total_chunks: int = 0
+    received_chunks: int = 0
+    missing_chunks: list[int] = Field(default_factory=list)
+    complete: bool = False
+
+
 @router.post("/tasks/upload/init", response_model=ChunkInitResponse)
 async def init_chunked_upload(req: ChunkInitRequest) -> ChunkInitResponse:
     """初始化分块上传会话。"""
@@ -170,6 +181,15 @@ async def init_chunked_upload(req: ChunkInitRequest) -> ChunkInitResponse:
         return ChunkInitResponse(upload_id=upload_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/tasks/upload/{upload_id}/status", response_model=ChunkUploadStatusResponse)
+async def get_chunked_upload_status(upload_id: str) -> ChunkUploadStatusResponse:
+    """获取分块上传会话状态，便于排查缺失分块。"""
+    try:
+        return ChunkUploadStatusResponse(**TaskService.get_chunked_upload_status(upload_id))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 class ChunkCompleteRequest(BaseModel):
