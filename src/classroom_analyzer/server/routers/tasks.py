@@ -41,6 +41,16 @@ DATA_ROOT = get_data_dir()
 RESULTS_ROOT = DATA_ROOT / "results"
 
 
+def _has_configured_api_key(*values: object) -> bool:
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        key = value.strip()
+        if key and "在这里粘贴" not in key:
+            return True
+    return False
+
+
 # ── 健康检查 ──
 
 
@@ -88,15 +98,23 @@ async def get_model_config():
 
         return {
             "text_model": text_model,
+            "text_provider": llm_provider,
+            "text_enabled": _has_configured_api_key(
+                lp_config.get("api_key"),
+                llm.get("api_key"),
+            ),
             "vision_provider": vision_provider,
             "vision_model": vision_model,
-            "vision_enabled": bool(
-                vision.get("api_key") and "在这里粘贴" not in vision.get("api_key", "")
+            "vision_enabled": _has_configured_api_key(
+                vp_config.get("api_key"),
+                vision.get("api_key"),
             ),
         }
     except Exception:
         return {
             "text_model": "unknown",
+            "text_provider": "unknown",
+            "text_enabled": False,
             "vision_provider": "unknown",
             "vision_model": "unknown",
             "vision_enabled": False,
