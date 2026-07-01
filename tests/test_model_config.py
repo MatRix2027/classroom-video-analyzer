@@ -39,3 +39,4 @@ async def test_model_config_uses_provider_nested_keys(monkeypatch):
     assert payload["vision_provider"] == "doubao_vision"
     assert payload["vision_model"] == "doubao-vision-pro-32k"
     assert payload["vision_enabled"] is True
+    assert payload["config_status"] == "ok"

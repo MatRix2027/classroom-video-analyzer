@@ -109,8 +109,10 @@ async def get_model_config():
                 vp_config.get("api_key"),
                 vision.get("api_key"),
             ),
+            "config_status": "ok",
+            "config_error": "",
         }
-    except Exception:
+    except Exception as exc:
         return {
             "text_model": "unknown",
             "text_provider": "unknown",
@@ -118,6 +120,8 @@ async def get_model_config():
             "vision_provider": "unknown",
             "vision_model": "unknown",
             "vision_enabled": False,
+            "config_status": "missing_or_invalid",
+            "config_error": str(exc),
         }
 
 

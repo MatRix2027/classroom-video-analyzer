@@ -194,9 +194,13 @@ export interface StandardsResponse {
 
 export interface ModelConfig {
   text_model: string;
+  text_provider?: string;
+  text_enabled?: boolean;
   vision_provider: string;
   vision_model: string;
   vision_enabled: boolean;
+  config_status?: string;
+  config_error?: string;
 }
 
 export interface CalibrationFeedbackCreate {

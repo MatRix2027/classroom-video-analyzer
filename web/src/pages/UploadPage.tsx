@@ -158,6 +158,7 @@ const UploadPage: React.FC = () => {
   const selectedSystem = SYSTEMS.find((item) => item.value === taskInfo.system_name);
   const selectedMode = ANALYSIS_MODES.find((item) => item.id === analysisMode) || ANALYSIS_MODES[1];
   const selectedScenario = SCENARIOS.find((item) => item.id === scenario) || SCENARIOS[0];
+  const modelConfigIssue = modelConfig?.config_status && modelConfig.config_status !== 'ok';
 
   const inferredTags = useMemo(() => {
     const tags = [];
@@ -433,13 +434,22 @@ const UploadPage: React.FC = () => {
                 <CapabilityRow label="Web 访问" value="开箱可用" color="success" />
                 <CapabilityRow label="关键帧提取" value="默认启用" color="success" />
                 <CapabilityRow
+                  label="文本评分"
+                  value={modelConfig?.text_enabled ? modelConfig.text_model : '未配置'}
+                  color={modelConfig?.text_enabled ? 'success' : 'warning'}
+                />
+                <CapabilityRow
                   label="视觉评分"
                   value={modelConfig?.vision_enabled ? modelConfig.vision_model : '未配置时需复核'}
                   color={modelConfig?.vision_enabled ? 'success' : 'warning'}
                 />
                 <CapabilityRow label="人工校对" value="支持任务绑定" color="success" />
               </Box>
-              {!modelConfig?.vision_enabled && (
+              {modelConfigIssue ? (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  当前云端未检测到 API_KEYS_JSON，模型评分不会启用；需在 UAP 站点环境变量配置密钥后重新部署。
+                </Alert>
+              ) : !modelConfig?.vision_enabled && (
                 <Alert severity="warning" sx={{ mt: 2 }}>
                   当前环境可访问和上传，也会提取关键帧；视觉维度若未配置模型，会以“待复核”方式呈现，避免误判为终评。
                 </Alert>
