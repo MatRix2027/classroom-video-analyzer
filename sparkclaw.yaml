@@ -1,0 +1,7 @@
+name: classroom-video-analyzer
+port: 8080
+healthPath: /api/health
+data: true
+dataPath: /data
+env:
+  CLASSROOM_ANALYZER_DATA_DIR: /data
