@@ -832,7 +832,7 @@ class LLMAnalyzer:
                     except (ValueError, TypeError):
                         continue
 
-                parsed_scores[item_name] = ScoreDimension(
+                parsed_scores[dim_config.name] = ScoreDimension(
                     name=dim_config.name,
                     score=score_val,
                     max_score=max_score,

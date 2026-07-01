@@ -44,7 +44,20 @@ const DimensionCard: React.FC<DimensionCardProps> = ({
   const gradeColor = GRADE_COLORS[dimension.grade] || '#64748b';
   const isVision = dimension.source_model === 'vision';
   const isVisionReview = dimension.source_model === 'vision_enhanced';
-  const sourceLabel = isVision ? '视觉证据' : isVisionReview ? '视觉待复核' : '文本证据';
+  const isVisionFusion = Boolean(dimension.evidence?.startsWith('[视觉融合评分]'));
+  const needsVisionReview = Boolean(
+    dimension.evidence?.startsWith('[视觉维度·待人工校对]')
+    || dimension.evidence?.startsWith('[视觉证据已参与但未形成独立分]'),
+  );
+  const sourceLabel = isVision
+    ? '视觉证据'
+    : isVisionFusion
+      ? '视觉融合'
+      : needsVisionReview
+        ? '视觉待复核'
+        : isVisionReview
+          ? '视觉辅助'
+          : '文本证据';
 
   return (
     <Card sx={{ mb: 1.5 }}>

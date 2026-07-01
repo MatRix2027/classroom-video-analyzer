@@ -403,15 +403,16 @@ class AnalysisPipeline:
             logger.info("关键帧目录不存在，质量评估将仅基于文本")
 
         # ── 混合评分：文本模型（8维度）+ 视觉模型（2视觉维度 + 视觉增强维度 + 红线检查）──
-        # 视觉维度：视觉模型直接评分的维度（需要看视频才能评）
+        # 直接视觉维度：最终分优先采用视觉模型独立评分。
         VISUAL_DIMENSIONS = {"仪表教态", "语言表达及板书设计"}
-        # 视觉增强维度：视觉模型提供观察证据，辅助文本模型评分的维度
-        # 不直接用视觉模型评分，但视觉观察结果已注入文本模型的上下文中
+        # 视觉融合维度：文本可判断一部分，但必须让视觉证据进入最终分。
+        VISUAL_FUSION_DIMENSIONS = {"关注公平", "课堂效果及整体印象"}
+        # 视觉增强维度：视觉观察结果已注入文本模型上下文，作为证据补充。
         VISUAL_ENHANCED_DIMENSIONS = {
-            "课堂效果及整体印象",  # 学生表情/情绪 → 课堂氛围
-            "关注公平",           # 学生参与度分布 → 互动机会
-            "教学逻辑",           # 教学节奏/环节切换 → 主线清晰度
-            "组织教学",           # 课堂秩序 → 环境管理
+            "课堂效果及整体印象",
+            "关注公平",
+            "教学逻辑",
+            "组织教学",
         }
         prompt_version = self._get_prompt_version()
         num_rounds = self._config.analysis_config.get("num_rounds", 1)
@@ -529,15 +530,11 @@ class AnalysisPipeline:
             dim_weight = dim_config.weight
             dim_max_score = dim_config.weight * 100
 
-            # 视觉评分是否有效：维度在视觉列表中 + 视觉模型确实返回了该维度 + 分数>0
+            # 视觉评分是否有效：视觉模型确实返回了该维度 + 分数>0
             vision_dim = vision_by_name.get(dim_name) if vision_by_name else None
-            vision_score_valid = (
-                vision_dim is not None
-                and dim_name in VISUAL_DIMENSIONS
-                and vision_dim.score > 0
-            )
+            vision_score_valid = vision_dim is not None and vision_dim.score > 0
 
-            if vision_score_valid:
+            if dim_name in VISUAL_DIMENSIONS and vision_score_valid:
                 # 视觉维度：使用视觉模型评分
                 dim = vision_dim
                 dim.source_model = "vision"
@@ -563,8 +560,35 @@ class AnalysisPipeline:
                         + (f" 文本模型原判断：{original_evidence}" if original_evidence else "")
                     )
                     dim.source_model = "vision_enhanced"
+                elif dim_name in VISUAL_FUSION_DIMENSIONS:
+                    if vision_score_valid:
+                        text_score = dim.score
+                        vision_score = vision_dim.score
+                        dim.score = text_score * 0.60 + vision_score * 0.40
+                        dim.source_model = "vision_enhanced"
+                        dim.evidence = (
+                            f"[视觉融合评分] 本维度按文本证据60% + 视觉证据40%合成。"
+                            f"文本分{text_score:.1f}/{dim_max_score:.0f}，视觉分{vision_score:.1f}/{dim_max_score:.0f}。"
+                            + (f" 文本依据：{dim.evidence}" if dim.evidence else "")
+                            + (f" 视觉依据：{vision_dim.evidence}" if vision_dim.evidence else "")
+                        )
+                        if vision_dim.scoring_points:
+                            dim.scoring_points = [*dim.scoring_points, *vision_dim.scoring_points]
+                        logger.debug(
+                            f"  维度 '{dim_name}'：文本+视觉融合评分 = {dim.score:.1f} "
+                            f"(text={text_score:.1f}, vision={vision_score:.1f})"
+                        )
+                    elif visual_observation:
+                        dim.source_model = "vision_enhanced"
+                        dim.evidence = (
+                            "[视觉证据已参与但未形成独立分] 已将关键帧观察注入评分上下文，"
+                            "但视觉模型未返回该维度独立分；本维度需人工重点复核。"
+                            + (f" 文本依据：{dim.evidence}" if dim.evidence else "")
+                        )
+                    else:
+                        dim.source_model = "text"
                 else:
-                    dim.source_model = "text"
+                    dim.source_model = "vision_enhanced" if dim_name in VISUAL_ENHANCED_DIMENSIONS and visual_observation else "text"
                 merged_scores.append(dim)
                 logger.debug(f"  维度 '{dim_name}'：使用文本评分 = {dim.score:.1f}")
 

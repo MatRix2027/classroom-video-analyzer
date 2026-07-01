@@ -214,6 +214,29 @@ class TestLLMAnalyzer:
         assert len(check_items) == 0
         assert len(score_dims) == 1  # 填充默认值
 
+    def test_parse_quality_response_uses_standard_name_after_fuzzy_match(self) -> None:
+        response = json.dumps({
+            "checklist": [],
+            "scores": [
+                {"name": "板书设计", "score": 6, "evidence": "课件结构清晰"},
+            ],
+        })
+        dimensions = [
+            ScoringDimensionConfig(
+                name="语言表达及板书设计",
+                weight=0.08,
+                criteria="表达与板书",
+                max_score=8,
+            ),
+        ]
+
+        _, score_dims = LLMAnalyzer._parse_quality_response(response, dimensions)
+
+        assert len(score_dims) == 1
+        assert score_dims[0].name == "语言表达及板书设计"
+        assert score_dims[0].score == 6
+        assert score_dims[0].evidence == "课件结构清晰"
+
     @patch("classroom_analyzer.analysis.llm_analyzer.OpenAI")
     def test_detect_events(self, mock_openai: MagicMock, sample_transcript: Transcript) -> None:
         # Mock LLM响应

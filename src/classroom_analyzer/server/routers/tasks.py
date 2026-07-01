@@ -47,7 +47,7 @@ RESULTS_ROOT = DATA_ROOT / "results"
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """健康检查端点。"""
-    return HealthResponse(status="ok", data_dir=str(DATA_ROOT), build="pilot-stability-v1")
+    return HealthResponse(status="ok", data_dir=str(DATA_ROOT), build="visual-fusion-scoring-v1")
 
 
 # ── 模型配置信息 ──
@@ -652,11 +652,14 @@ def _build_evidence_status(
     transcript_available, transcript_segments, speaker_count, duration = _load_transcript_stats(task_id)
     visual_fallback_dimensions: list[str] = []
     visual_scored = False
+    visual_required_dimensions = {"仪表教态", "语言表达及板书设计", "关注公平", "课堂效果及整体印象"}
     if scoring_data and getattr(scoring_data, "dimensions", None):
         for dimension in scoring_data.dimensions:
-            if dimension.source_model == "vision":
+            evidence = dimension.evidence or ""
+            has_visual_score = dimension.source_model == "vision" or evidence.startswith("[视觉融合评分]")
+            if has_visual_score:
                 visual_scored = True
-            if dimension.name in {"仪表教态", "语言表达及板书设计"} and dimension.source_model != "vision":
+            if dimension.name in visual_required_dimensions and not has_visual_score:
                 visual_fallback_dimensions.append(dimension.name)
 
     is_clip = 0 < duration < 20 * 60
