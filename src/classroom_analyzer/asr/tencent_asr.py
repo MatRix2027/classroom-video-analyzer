@@ -59,10 +59,12 @@ class TencentASRClient:
         # 初始化COS客户端（绕过系统代理，否则翻墙/VPN软件会拦截请求导致 ProxyError）
         cos_region = cos_config.get("region", "ap-guangzhou")
         self._cos_region = cos_region
+        self._network_timeout_seconds = int(cos_config.get("timeout_seconds", 60))
         cos_config_obj = CosConfig(
             Region=cos_region,
             SecretId=secret_id,
             SecretKey=secret_key,
+            Timeout=self._network_timeout_seconds,
         )
         # 显式禁用代理：翻墙软件的 HTTPS_PROXY 环境变量会让 qcloud_cos 也走代理
         # 走 127.0.0.1:7890 → 代理未开 → ProxyError
@@ -86,7 +88,7 @@ class TencentASRClient:
 
         # 初始化ASR客户端（同样绕过系统代理）
         cred = credential.Credential(secret_id, secret_key)
-        http_profile = HttpProfile(endpoint="asr.tencentcloudapi.com")
+        http_profile = HttpProfile(endpoint="asr.tencentcloudapi.com", reqTimeout=self._network_timeout_seconds)
         client_profile = ClientProfile(httpProfile=http_profile)
         import os as _os2
         _saved_proxies2 = {}
@@ -126,11 +128,15 @@ class TencentASRClient:
 
         # 步骤1：上传COS
         logger.info(f"上传音频到COS：{audio_path}")
-        audio_url = self._upload_to_cos(audio_path)
+        if progress_callback:
+            progress_callback(2.0, "腾讯云ASR转文字：正在上传音频到 COS。")
+        audio_url = self._upload_to_cos(audio_path, progress_callback=progress_callback)
 
         try:
             # 步骤2：创建识别任务
             logger.info(f"创建ASR识别任务：{audio_url}")
+            if progress_callback:
+                progress_callback(2.0, "腾讯云ASR转文字：音频已上传，正在创建识别任务。")
             task_id = self._create_task(audio_url, enable_diarization)
 
             # 步骤3：轮询任务状态（超时按音频时长动态计算：每10分钟给5分钟，最少15分钟）
@@ -153,7 +159,11 @@ class TencentASRClient:
             # 步骤5：清理COS临时文件
             self._cleanup_cos_for_url(audio_url)
 
-    def _upload_to_cos(self, local_path: str) -> str:
+    def _upload_to_cos(
+        self,
+        local_path: str,
+        progress_callback: Callable[[float, str], None] | None = None,
+    ) -> str:
         """上传文件到COS，返回可访问的URL。
 
         Args:
@@ -170,14 +180,30 @@ class TencentASRClient:
         object_key = f"{self._cos_path_prefix}{uuid.uuid4().hex}{file_ext}"
 
         upload_errors: list[str] = []
+        last_progress_at = 0.0
+
+        def _upload_progress(consumed: int, total: int) -> None:
+            nonlocal last_progress_at
+            if not progress_callback or total <= 0:
+                return
+            now = time.monotonic()
+            if now - last_progress_at < 5 and consumed < total:
+                return
+            last_progress_at = now
+            percent = max(0, min(100, int(consumed * 100 / total)))
+            progress_callback(2.0, f"腾讯云ASR转文字：音频上传 COS 中 {percent}%。")
+
         for attempt in range(1, self._cos_upload_max_retries + 1):
             try:
+                if progress_callback:
+                    progress_callback(2.0, f"腾讯云ASR转文字：正在上传音频到 COS（第 {attempt} 次）。")
                 self._cos_client.upload_file(
                     Bucket=self._cos_bucket,
                     Key=object_key,
                     LocalFilePath=local_path,
                     PartSize=self._cos_upload_part_size_mb,
                     MAXThread=self._cos_upload_threads,
+                    progress_callback=_upload_progress,
                 )
                 break
             except Exception as e:
@@ -190,12 +216,16 @@ class TencentASRClient:
                     error_text,
                 )
                 if attempt < self._cos_upload_max_retries:
+                    if progress_callback:
+                        progress_callback(2.0, f"腾讯云ASR转文字：COS 上传失败，准备第 {attempt + 1} 次重试。")
                     time.sleep(self._cos_upload_retry_base_seconds * (2 ** (attempt - 1)))
         else:
             file_size_mb = Path(local_path).stat().st_size / 1024 / 1024
             if file_size_mb <= self._cos_direct_upload_max_mb:
                 try:
                     logger.info("COS分片上传连续失败，尝试单对象直传：{:.1f} MB", file_size_mb)
+                    if progress_callback:
+                        progress_callback(2.0, "腾讯云ASR转文字：分片上传失败，正在尝试直接上传音频。")
                     with open(local_path, "rb") as f:
                         self._cos_client.put_object(
                             Bucket=self._cos_bucket,
