@@ -232,7 +232,7 @@ def get_task_status(task_id: str) -> Optional[dict[str, Any]]:
             conn.close()
 
 
-def mark_stale_running_tasks_failed(max_age_minutes: int = 30) -> int:
+def mark_stale_running_tasks_failed(max_age_minutes: int = 10) -> int:
     """Mark orphaned background jobs as failed after a server restart or long inactivity."""
     running_statuses = ("extracting", "transcribing", "analyzing", "scoring")
     now_dt = datetime.now(timezone.utc)
