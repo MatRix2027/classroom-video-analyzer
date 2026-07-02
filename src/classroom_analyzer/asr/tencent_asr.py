@@ -84,7 +84,7 @@ class TencentASRClient:
         self._cos_upload_threads = int(cos_config.get("upload_threads", 2))
         self._cos_upload_max_retries = int(cos_config.get("upload_max_retries", 4))
         self._cos_upload_retry_base_seconds = float(cos_config.get("upload_retry_base_seconds", 2))
-        self._cos_direct_upload_max_mb = int(cos_config.get("direct_upload_max_mb", 512))
+        self._cos_direct_upload_max_mb = int(cos_config.get("direct_upload_max_mb", 0))
 
         # 初始化ASR客户端（同样绕过系统代理）
         cred = credential.Credential(secret_id, secret_key)
