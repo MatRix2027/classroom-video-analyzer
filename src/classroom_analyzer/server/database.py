@@ -84,9 +84,12 @@ CREATE TABLE IF NOT EXISTS calibration_feedback (
 def _get_conn() -> sqlite3.Connection:
     """获取数据库连接，确保 data 目录存在。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.Error as exc:
+        logger.warning(f"SQLite WAL 模式设置失败，继续使用默认模式：{exc}")
     return conn
 
 
