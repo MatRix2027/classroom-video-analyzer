@@ -118,6 +118,7 @@ class TaskService:
             task_id: 任务 ID
             level: 班型等级
         """
+        db.mark_stale_running_tasks_failed()
         task = db.get_task(task_id)
         if task is None:
             raise ValueError(f"任务不存在：{task_id}")
@@ -139,11 +140,13 @@ class TaskService:
     @staticmethod
     def get_task_detail(task_id: str) -> Optional[dict[str, Any]]:
         """获取任务详情。"""
+        db.mark_stale_running_tasks_failed()
         return db.get_task(task_id)
 
     @staticmethod
     def get_task_status(task_id: str) -> Optional[dict[str, Any]]:
         """获取任务状态（轮询用）。"""
+        db.mark_stale_running_tasks_failed()
         return db.get_task_status(task_id)
 
     @staticmethod

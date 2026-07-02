@@ -223,7 +223,11 @@ class AnalysisPipeline:
             if progress_callback:
                 progress_callback(2, self.STEPS[2])
             enable_diarization = self._config.asr_config.get("enable_diarization", True)
-            transcript = self._step_asr(audio_info.file_path, enable_diarization=enable_diarization)
+            transcript = self._step_asr(
+                audio_info.file_path,
+                enable_diarization=enable_diarization,
+                progress_callback=progress_callback,
+            )
             self._save_transcript(transcript, str(transcript_path))
         if progress_callback:
             progress_callback(3, f"{self.STEPS[2]} ✓")
@@ -305,10 +309,19 @@ class AnalysisPipeline:
         logger.info(f"提取音频：{video_path} → {output_path}")
         return self._audio_extractor.extract(video_path, output_path, sample_rate=16000)
 
-    def _step_asr(self, audio_path: str, enable_diarization: bool = True) -> Transcript:
+    def _step_asr(
+        self,
+        audio_path: str,
+        enable_diarization: bool = True,
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+    ) -> Transcript:
         """[3/6] 腾讯云ASR转文字。"""
         logger.info(f"ASR转写：{audio_path}")
-        return self._asr_client.recognize(audio_path, enable_diarization=enable_diarization)
+        return self._asr_client.recognize(
+            audio_path,
+            enable_diarization=enable_diarization,
+            progress_callback=progress_callback,
+        )
 
     def _get_prompt_version(self) -> str:
         """根据配置返回对应的 Prompt 版本。"""

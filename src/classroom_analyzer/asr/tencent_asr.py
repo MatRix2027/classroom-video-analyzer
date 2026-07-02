@@ -7,6 +7,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from typing import Callable
 
 from loguru import logger
 from qcloud_cos import CosConfig, CosS3Client
@@ -102,6 +103,7 @@ class TencentASRClient:
         self,
         audio_path: str,
         enable_diarization: bool = True,
+        progress_callback: Callable[[float, str], None] | None = None,
     ) -> Transcript:
         """识别音频文件，返回转录结果。
 
@@ -134,7 +136,7 @@ class TencentASRClient:
             # 步骤3：轮询任务状态（超时按音频时长动态计算：每10分钟给5分钟，最少15分钟）
             asr_timeout = max(900, int(audio_duration / 60 * 5) + 60)
             logger.info(f"轮询ASR任务状态：task_id={task_id}，超时={asr_timeout}秒（音频{audio_duration:.0f}秒）")
-            raw_result = self._poll_task(task_id, timeout=asr_timeout)
+            raw_result = self._poll_task(task_id, timeout=asr_timeout, progress_callback=progress_callback)
 
             # 步骤4：解析结果（传入音频时长用于降级时间戳）
             logger.info("解析ASR识别结果")
@@ -264,7 +266,12 @@ class TencentASRClient:
         except Exception as e:
             raise ASRError(f"创建ASR识别任务失败：{e}")
 
-    def _poll_task(self, task_id: int, timeout: int = 300) -> dict:
+    def _poll_task(
+        self,
+        task_id: int,
+        timeout: int = 300,
+        progress_callback: Callable[[float, str], None] | None = None,
+    ) -> dict:
         """轮询ASR任务状态直到完成。
 
         Args:
@@ -352,10 +359,19 @@ class TencentASRClient:
                 raise ASRError(f"ASR识别失败：{error_msg}")
 
             elif status == self.STATUS_RUNNING:
+                if progress_callback:
+                    waited_minutes = int(elapsed // 60)
+                    timeout_minutes = max(1, int(timeout // 60))
+                    progress_callback(
+                        2.0,
+                        f"腾讯云ASR转文字：已等待 {waited_minutes} 分钟，最长等待约 {timeout_minutes} 分钟；任务仍在轮询中。",
+                    )
                 logger.debug(f"ASR任务运行中，{poll_interval}秒后重试（已等待 {elapsed:.0f}秒）")
                 time.sleep(poll_interval)
 
             else:
+                if progress_callback:
+                    progress_callback(2.0, f"腾讯云ASR转文字：识别任务状态 {status}，继续轮询。")
                 logger.warning(f"ASR任务未知状态：{status}，继续等待")
                 time.sleep(poll_interval)
 

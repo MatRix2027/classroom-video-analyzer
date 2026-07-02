@@ -234,5 +234,29 @@ class TestTencentASRClient:
         with pytest.raises(ASRError, match="音频文件不存在"):
             asr_client.recognize("/nonexistent.wav")
 
+    def test_poll_task_reports_progress_heartbeat(self, asr_client: TencentASRClient) -> None:
+        running_resp = MagicMock()
+        running_resp.Data.Status = asr_client.STATUS_RUNNING
+
+        success_resp = MagicMock()
+        success_resp.Data.Status = asr_client.STATUS_SUCCESS
+        success_resp.Data.Result = "hello"
+        success_resp.Data.ResultDetail = None
+
+        asr_client._asr_client.DescribeTaskStatus.side_effect = [running_resp, success_resp]
+        heartbeats: list[tuple[float, str]] = []
+
+        with patch("classroom_analyzer.asr.tencent_asr.time.sleep", return_value=None):
+            result = asr_client._poll_task(
+                123,
+                timeout=60,
+                progress_callback=lambda step, message: heartbeats.append((step, message)),
+            )
+
+        assert result["result"] == {"text": "hello"}
+        assert heartbeats
+        assert heartbeats[0][0] == 2.0
+        assert "ASR" in heartbeats[0][1]
+
 
 from pathlib import Path
