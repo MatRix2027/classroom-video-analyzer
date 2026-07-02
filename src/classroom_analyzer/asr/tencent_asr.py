@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Callable
 
@@ -85,6 +86,7 @@ class TencentASRClient:
         self._cos_upload_max_retries = int(cos_config.get("upload_max_retries", 4))
         self._cos_upload_retry_base_seconds = float(cos_config.get("upload_retry_base_seconds", 2))
         self._cos_direct_upload_max_mb = int(cos_config.get("direct_upload_max_mb", 0))
+        self._cos_upload_attempt_timeout_seconds = int(cos_config.get("upload_attempt_timeout_seconds", 60))
 
         # 初始化ASR客户端（同样绕过系统代理）
         cred = credential.Credential(secret_id, secret_key)
@@ -197,14 +199,35 @@ class TencentASRClient:
             try:
                 if progress_callback:
                     progress_callback(2.0, f"腾讯云ASR转文字：正在上传音频到 COS（第 {attempt} 次）。")
-                self._cos_client.upload_file(
-                    Bucket=self._cos_bucket,
-                    Key=object_key,
-                    LocalFilePath=local_path,
-                    PartSize=self._cos_upload_part_size_mb,
-                    MAXThread=self._cos_upload_threads,
-                    progress_callback=_upload_progress,
-                )
+                upload_kwargs = {
+                    "Bucket": self._cos_bucket,
+                    "Key": object_key,
+                    "LocalFilePath": local_path,
+                    "PartSize": self._cos_upload_part_size_mb,
+                    "MAXThread": self._cos_upload_threads,
+                    "progress_callback": _upload_progress,
+                }
+                executor = ThreadPoolExecutor(max_workers=1)
+                future = executor.submit(self._cos_client.upload_file, **upload_kwargs)
+                started_at = time.monotonic()
+                try:
+                    while True:
+                        try:
+                            future.result(timeout=5)
+                            break
+                        except FutureTimeoutError as timeout_error:
+                            elapsed = time.monotonic() - started_at
+                            if progress_callback:
+                                progress_callback(
+                                    2.0,
+                                    f"腾讯云ASR转文字：COS 上传仍在等待，已等待 {int(elapsed)} 秒。",
+                                )
+                            if elapsed >= self._cos_upload_attempt_timeout_seconds:
+                                raise ASRError(
+                                    f"COS 上传超时：单次上传超过 {self._cos_upload_attempt_timeout_seconds} 秒无结果。"
+                                ) from timeout_error
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
                 break
             except Exception as e:
                 error_text = str(e)
