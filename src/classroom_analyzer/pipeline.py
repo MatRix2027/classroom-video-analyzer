@@ -223,11 +223,17 @@ class AnalysisPipeline:
             if progress_callback:
                 progress_callback(2, self.STEPS[2])
             enable_diarization = self._config.asr_config.get("enable_diarization", True)
-            transcript = self._step_asr(
-                audio_info.file_path,
-                enable_diarization=enable_diarization,
-                progress_callback=progress_callback,
-            )
+            try:
+                transcript = self._step_asr(
+                    audio_info.file_path,
+                    enable_diarization=enable_diarization,
+                    progress_callback=progress_callback,
+                )
+            except Exception as exc:
+                logger.warning(f"ASR转写失败，进入视觉优先降级分析：{exc}")
+                if progress_callback:
+                    progress_callback(3, "语音转写失败，已进入视觉优先降级分析。")
+                transcript = Transcript(segments=[], duration=audio_info.duration, speaker_count=0)
             self._save_transcript(transcript, str(transcript_path))
         if progress_callback:
             progress_callback(3, f"{self.STEPS[2]} ✓")
@@ -241,9 +247,15 @@ class AnalysisPipeline:
                 progress_callback(3.0, self.SUBSTEPS.get(3.0, self.STEPS[3]))
             # 根据班型选择prompt版本
             prompt_version = self._get_prompt_version()
-            event_timeline = self._step_llm_analysis(
-                transcript, prompt_version=prompt_version, progress_callback=progress_callback
-            )
+            if not transcript.segments:
+                logger.warning("转写为空，跳过文本事件识别，后续仅使用定期关键帧和视觉证据。")
+                if progress_callback:
+                    progress_callback(4, "文本证据不可用，跳过事件识别，继续提取视觉关键帧。")
+                event_timeline = EventTimeline(events=[])
+            else:
+                event_timeline = self._step_llm_analysis(
+                    transcript, prompt_version=prompt_version, progress_callback=progress_callback
+                )
             self._save_events(event_timeline, str(events_path))
         if progress_callback:
             progress_callback(4, f"{self.STEPS[3]} ✓")
@@ -481,7 +493,24 @@ class AnalysisPipeline:
         interaction_chains_text = format_chains_for_prompt(chains)
         logger.info(f"交互链重构完成：{len(chains)} 条互动链，{sum(len(c.links) for c in chains)} 个回合")
 
-        text_check_items, text_scores = self._llm_analyzer.assess_quality(
+        if not transcript.segments:
+            logger.warning("转写为空，文本评分降级为中性待复核分，视觉维度仍尝试使用视觉模型评分。")
+            text_check_items = []
+            text_scores = [
+                ScoreDimension(
+                    name=dim.name,
+                    score=dim.weight * 100 * 0.5,
+                    max_score=dim.weight * 100,
+                    weight=dim.weight,
+                    evidence="语音转写不可用，本维度为系统中性占位分，需要人工复核。",
+                    details="ASR/COS 不可用时的降级结果，不作为最终教师评价结论。",
+                    grade="待复核",
+                    source_model="fallback",
+                )
+                for dim in self._config.scoring_dimensions
+            ]
+        else:
+            text_check_items, text_scores = self._llm_analyzer.assess_quality(
             transcript=transcript,
             events=events,
             checklist=self._config.quality_checklist,
